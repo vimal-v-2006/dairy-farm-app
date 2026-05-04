@@ -5,7 +5,7 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [hasUser, setHasUser] = useState(false);
+  const [hasUser, setHasUser] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,6 +22,7 @@ export function AuthProvider({ children }) {
           setUser(null);
         }
       } catch {
+        setHasUser(true);
         storage.clear();
         setUser(null);
       } finally {
