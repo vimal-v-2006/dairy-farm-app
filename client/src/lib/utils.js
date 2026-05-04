@@ -239,11 +239,6 @@ export async function exportBusinessRegisterExcel(name, { title, table, reportMe
   headerRow1Values.push('Total Expenses', 'Total Income', 'Profit');
   headerRow2Values.push('', '', '');
 
-  if (table.hasShiftColumns) {
-    headerRow1Values.push('Cow Shifts', 'Feed Shifts');
-    headerRow2Values.push('', '');
-  }
-
   const headerRow1 = sheet.addRow(headerRow1Values);
   const headerRow2 = sheet.addRow(headerRow2Values);
 
@@ -331,10 +326,6 @@ export async function exportBusinessRegisterExcel(name, { title, table, reportMe
 
     rowValues.push(showNumber(row.totalExpenses), showNumber(row.totalIncome), showNumber(row.profit));
 
-    if (table.hasShiftColumns) {
-      rowValues.push(row.cowShifts || '—', row.feedShifts || '—');
-    }
-
     const dataRow = sheet.addRow(rowValues);
 
     // Alternate row shading
@@ -347,7 +338,7 @@ export async function exportBusinessRegisterExcel(name, { title, table, reportMe
     dataRow.eachCell((cell, colNumber) => {
       cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
       cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      if (colNumber > 2 && (!table.hasShiftColumns || (colNumber !== colCount - 1 && colNumber !== colCount))) cell.numFmt = '#,##0.00';
+      if (colNumber > 2) cell.numFmt = '#,##0.00';
     });
 
     // Profit column color coding
@@ -464,16 +455,6 @@ export async function exportBusinessRegisterExcel(name, { title, table, reportMe
     grandProfitCell.font = { bold: true, size: 13, color: { argb: 'FF15803D' } };
   }
 
-  if (table.hasShiftColumns) {
-    totalRow.getCell(eCol + 4).value = '—';
-    totalRow.getCell(eCol + 4).font = { bold: true, size: 11, color: { argb: 'FF475569' } };
-    totalRow.getCell(eCol + 4).alignment = { vertical: 'middle', horizontal: 'center' };
-
-    totalRow.getCell(eCol + 5).value = '—';
-    totalRow.getCell(eCol + 5).font = { bold: true, size: 11, color: { argb: 'FF475569' } };
-    totalRow.getCell(eCol + 5).alignment = { vertical: 'middle', horizontal: 'center' };
-  }
-
   // Add borders to total row
   totalRow.eachCell((cell) => {
     cell.border = {
@@ -495,14 +476,12 @@ export async function exportBusinessRegisterExcel(name, { title, table, reportMe
       column.width = 16; // Date
     } else if (index === 1) {
       column.width = 16; // Total Milk
-    } else if (index === colCount - 3 - (table.hasShiftColumns ? 2 : 0)) {
+    } else if (index === colCount - 3) {
       column.width = 18; // Total Expenses
-    } else if (index === colCount - 2 - (table.hasShiftColumns ? 2 : 0)) {
+    } else if (index === colCount - 2) {
       column.width = 18; // Total Income
-    } else if (index === colCount - 1 - (table.hasShiftColumns ? 2 : 0)) {
+    } else if (index === colCount - 1) {
       column.width = 16; // Profit
-    } else if (table.hasShiftColumns && (index === colCount - 2 || index === colCount - 1)) {
-      column.width = 28; // Shift summary columns
     } else {
       column.width = 14; // All other columns
     }
@@ -533,7 +512,6 @@ function getTotalColumns(table) {
   count += 1; // Remaining Milk
   count += table.expenseNames.length; // Each expense
   count += 3; // Total Expenses, Total Income, Profit
-  if (table.hasShiftColumns) count += 2; // Cow shifts, Feed shifts
   return count;
 }
 
@@ -786,8 +764,10 @@ export async function exportSingleCowPdf(cow) {
     { label: 'Total Milk', value: `${Number(cow.totalMilk || 0).toFixed(2)} L` },
     { label: 'Milk Entries', value: String(cow.recordCount || 0) },
     { label: 'Last Record', value: cow.lastRecordedDate || 'None' },
+    { label: 'Last Milk Shift', value: cow.lastMilkShift || '—' },
     { label: 'Feed Used', value: `${Number(cow.totalFeedKg || 0).toFixed(2)} ${feedUnit === 'mixed' ? 'units' : 'kg'}` },
-    { label: 'Feed Budget', value: `Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}` }
+    { label: 'Feed Budget', value: `Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}` },
+    { label: 'Last Feed Shift', value: cow.lastFeedShift || '—' }
   ];
 
   const boxWidth = (pageWidth - margin * 2 - (stats.length - 1) * 4) / stats.length;
@@ -841,12 +821,13 @@ export async function exportSingleCowPdf(cow) {
   autoTable(doc, {
     startY: afterMilkTable + 4,
     margin: { left: margin, right: margin },
-    head: [['Date', 'Food', 'Quantity', 'Morning / Evening', 'Amount (Rs.)']],
+    head: [['Date', 'Food', 'Quantity', 'Morning / Evening', 'Notes', 'Amount (Rs.)']],
     body: (cow.feedHistory || []).map((row) => [
       row.entryDate,
       row.foodName || '—',
       `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`,
       row.entryShift || 'Morning',
+      row.notes || '—',
       Number(row.amount || 0).toFixed(2)
     ]),
     styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
@@ -949,7 +930,7 @@ export async function exportAllCowsPdf(cows) {
     doc.setFontSize(7);
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    const statsLine = `Milk: ${Number(cow.totalMilk || 0).toFixed(2)} L  |  Entries: ${cow.recordCount || 0}  |  Feed: ${Number(cow.totalFeedKg || 0).toFixed(2)} ${(cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'units' : 'kg'}  |  Budget: Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}  |  Last: ${cow.lastRecordedDate || '—'}`;
+    const statsLine = `Milk: ${Number(cow.totalMilk || 0).toFixed(2)} L  |  Entries: ${cow.recordCount || 0}  |  Last milk shift: ${cow.lastMilkShift || '—'}  |  Feed: ${Number(cow.totalFeedKg || 0).toFixed(2)} ${(cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'units' : 'kg'}  |  Last feed shift: ${cow.lastFeedShift || '—'}`;
     doc.text(statsLine, margin + 6, y + 21, { maxWidth: pageWidth - margin * 2 - 12 });
 
     y += 24;
@@ -992,8 +973,8 @@ export async function exportAllCowsPdf(cows) {
       autoTable(doc, {
         startY: y,
         margin: { left: margin, right: margin },
-        head: [['Date', 'Food', 'Qty', 'Morning / Evening', 'Amount']],
-        body: cow.feedHistory.map((row) => [row.entryDate, row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', Number(row.amount || 0).toFixed(2)]),
+        head: [['Date', 'Food', 'Qty', 'Morning / Evening', 'Notes', 'Amount']],
+        body: cow.feedHistory.map((row) => [row.entryDate, row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', row.notes || '—', Number(row.amount || 0).toFixed(2)]),
         styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
         headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 250, 252] },
