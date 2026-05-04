@@ -3021,7 +3021,7 @@ function FactCard({ title, facts = [], footer = '' }) {
         {facts.map((fact) => (
           <div key={fact.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-center">
             <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-300">{fact.label}</div>
-            <div className={`mt-2 min-w-0 break-words text-[1.35rem] font-black leading-tight sm:text-[1.55rem] ${fact.tone === 'rose' ? 'text-rose-300' : fact.tone === 'amber' ? 'text-amber-300' : fact.tone === 'emerald' ? 'text-emerald-300' : 'text-sky-300'}`}>{fact.value}</div>
+            <div className={`mt-2 min-w-0 break-words text-[1.1rem] font-black leading-tight sm:text-[1.3rem] ${fact.tone === 'rose' ? 'text-rose-300' : fact.tone === 'amber' ? 'text-amber-300' : fact.tone === 'emerald' ? 'text-emerald-300' : 'text-sky-300'}`}>{fact.value}</div>
           </div>
         ))}
       </div>
