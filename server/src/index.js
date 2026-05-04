@@ -138,6 +138,7 @@ function mergeExpenseRows(expenses = []) {
         amount: Number(amount.toFixed(2)),
         quantity_kg: Number(item.quantity_kg || 0),
         unit_rate: Number(item.unit_rate || 0),
+        entry_shift: item.entry_shift || '',
         payment_mode: (item.payment_mode || 'Cash').trim() || 'Cash',
         description: (item.description || '').trim()
       });
@@ -688,18 +689,19 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
       dailyEntryId = info.lastInsertRowid;
     }
 
-    const insertCow = db.prepare('INSERT INTO cow_milk_entries (daily_entry_id, cow_id, morning_litres, evening_litres, total_litres, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertCow = db.prepare('INSERT INTO cow_milk_entries (daily_entry_id, cow_id, morning_litres, evening_litres, total_litres, entry_shift, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     cowEntries.forEach((item) => {
       const totalLitres = Number(item.total_litres || 0);
-      const morningLitres = totalLitres || Number(item.morning_litres || 0);
-      const eveningLitres = totalLitres ? 0 : Number(item.evening_litres || 0);
-      insertCow.run(dailyEntryId, item.cow_id, morningLitres, eveningLitres, totalLitres || (morningLitres + eveningLitres), item.status || 'Recorded', item.notes || '');
+      const shift = item.entry_shift || '';
+      const morningLitres = shift === 'Evening' ? 0 : (totalLitres || Number(item.morning_litres || 0));
+      const eveningLitres = shift === 'Evening' ? (totalLitres || Number(item.evening_litres || 0)) : (totalLitres ? 0 : Number(item.evening_litres || 0));
+      insertCow.run(dailyEntryId, item.cow_id, morningLitres, eveningLitres, totalLitres || (morningLitres + eveningLitres), shift || null, item.status || 'Recorded', item.notes || '');
     });
 
     const insertSale = db.prepare('INSERT INTO milk_sales (daily_entry_id, buyer_id, litres, rate_per_litre, income, payment_status, payment_mode, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     milkSales.forEach((item) => insertSale.run(dailyEntryId, item.buyer_id || null, item.litres || 0, item.rate_per_litre || 0, Number(item.litres || 0) * Number(item.rate_per_litre || 0), item.payment_status || 'Paid', item.payment_mode || 'Cash', item.notes || ''));
 
-    const insertExpense = db.prepare('INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, description, payment_mode, bill_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertExpense = db.prepare('INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     mergedExpenses.forEach((item) => {
       const resolvedFoodSnapshot = (item.expense_type || 'common') === 'feed' && item.food_item_id
         ? (item.food_name_snapshot || item.unit_type_snapshot || item.food_price_history_id || item.rate_effective_from ? {
@@ -723,6 +725,7 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
         Number(item.quantity_kg || 0),
         Number((resolvedFoodSnapshot?.unit_rate ?? item.unit_rate) || 0),
         item.amount || 0,
+        item.entry_shift || null,
         item.description || '',
         item.payment_mode || 'Cash',
         item.bill_path || null

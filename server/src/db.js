@@ -132,6 +132,7 @@ function initDb() {
       morning_litres REAL DEFAULT 0,
       evening_litres REAL DEFAULT 0,
       total_litres REAL DEFAULT 0,
+      entry_shift TEXT,
       status TEXT DEFAULT 'Milked',
       notes TEXT,
       FOREIGN KEY(daily_entry_id) REFERENCES daily_entries(id) ON DELETE CASCADE,
@@ -166,6 +167,7 @@ function initDb() {
       quantity_kg REAL DEFAULT 0,
       unit_rate REAL DEFAULT 0,
       amount REAL DEFAULT 0,
+      entry_shift TEXT,
       description TEXT,
       payment_mode TEXT,
       bill_path TEXT,
@@ -234,6 +236,14 @@ function initDb() {
   }
   if (!expenseColumns.some((column) => column.name === 'rate_effective_from')) {
     db.exec('ALTER TABLE expenses ADD COLUMN rate_effective_from TEXT');
+  }
+  if (!expenseColumns.some((column) => column.name === 'entry_shift')) {
+    db.exec('ALTER TABLE expenses ADD COLUMN entry_shift TEXT');
+  }
+
+  const cowMilkColumns = db.prepare("PRAGMA table_info(cow_milk_entries)").all();
+  if (!cowMilkColumns.some((column) => column.name === 'entry_shift')) {
+    db.exec('ALTER TABLE cow_milk_entries ADD COLUMN entry_shift TEXT');
   }
 
   const calfExpenseColumns = db.prepare("PRAGMA table_info(calf_expenses)").all();

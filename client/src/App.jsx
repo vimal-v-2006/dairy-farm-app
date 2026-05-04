@@ -21,6 +21,7 @@ const nav = [
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
 const paymentStatusOptions = ['Paid', 'Pending', 'Partial'];
 const paymentModeOptions = ['Cash', 'GPay', 'PhonePe', 'Paytm', 'Bank Transfer', 'Other Online', 'Other', 'Nothing'];
+const shiftOptions = ['Morning', 'Evening'];
 const remainingMilkOptions = ['Home Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
 const cowStatusOptions = ['Lactating', 'Dry', 'Calf', 'Sold', 'Deceased'];
 const calfStatusOptions = ['Growing', 'Ready for lactation', 'Transferred'];
@@ -302,6 +303,7 @@ function App() {
         cowEntries: (data.cowEntries || []).map((entry) => ({
           cow_id: entry.cow_id || '',
           total_litres: entry.total_litres || '',
+          entry_shift: entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning'),
           status: entry.status || 'Recorded',
           notes: entry.notes || ''
         })),
@@ -325,6 +327,7 @@ function App() {
           quantity_kg: expense.quantity_kg ?? '',
           unit_rate: expense.unit_rate ?? '',
           amount: expense.amount ?? '',
+          entry_shift: expense.entry_shift || 'Morning',
           description: expense.description || '',
           payment_mode: expense.payment_mode || 'Cash'
         })))
@@ -867,6 +870,7 @@ function App() {
             rate_effective_from: foodSnapshot?.rate_effective_from || null,
             quantity_kg: updated.quantity_kg || '',
             unit_rate: Number(foodSnapshot?.unit_rate || 0),
+            entry_shift: updated.entry_shift || 'Morning',
             amount: updated.quantity_kg !== '' && updated.quantity_kg !== null && updated.quantity_kg !== undefined
               ? Number((Number(updated.quantity_kg || 0) * Number(foodSnapshot?.unit_rate || 0)).toFixed(2))
               : ''
@@ -882,6 +886,7 @@ function App() {
             food_name_snapshot: '',
             unit_type_snapshot: '',
             rate_effective_from: null,
+            entry_shift: '',
             quantity_kg: '',
             unit_rate: ''
           };
@@ -1261,9 +1266,10 @@ function App() {
                   ) : (
                     <div className="space-y-3">
                       {dailyForm.cowEntries.map((entry, index) => (
-                        <div key={index} className="grid gap-3 rounded-3xl border border-white/20 bg-white/45 p-4 dark:bg-slate-900/40 xl:grid-cols-[1.2fr_.9fr_1fr_auto]">
+                        <div key={index} className="grid gap-3 rounded-3xl border border-white/20 bg-white/45 p-4 dark:bg-slate-900/40 xl:grid-cols-[1.15fr_.8fr_.9fr_1fr_auto]">
                           <SelectInput label="Cow" value={entry.cow_id} onChange={(value) => updateCowEntry(index, { cow_id: value })} options={activeCows.map((cow) => ({ label: cow.name, value: cow.id }))} />
                           <Input label="Litres collected" type="number" value={entry.total_litres} onChange={(value) => updateCowEntry(index, { total_litres: value })} />
+                          <SelectInput label="Morning / evening" value={entry.entry_shift || 'Morning'} onChange={(value) => updateCowEntry(index, { entry_shift: value })} options={shiftOptions} />
                           <Input label="Observation" placeholder="Optional note" value={entry.notes} onChange={(value) => updateCowEntry(index, { notes: value })} />
                           <div className="flex items-end"><button onClick={() => setDailyForm((prev) => ({ ...prev, cowEntries: prev.cowEntries.filter((_, i) => i !== index) }))} className="rounded-2xl px-3 py-3 text-sm font-semibold text-red-500">Remove</button></div>
                         </div>
@@ -1348,7 +1354,7 @@ function App() {
                               <Input label="Amount" type="number" value={expense.amount} onChange={() => {}} disabled />
                             </div>
                             <div className="xl:col-span-2">
-                              <SelectInput label="Payment mode" value={expense.payment_mode} onChange={(value) => updateExpense(index, { payment_mode: value })} options={paymentModeOptions} />
+                              <SelectInput label="Morning / evening" value={expense.entry_shift || 'Morning'} onChange={(value) => updateExpense(index, { entry_shift: value })} options={shiftOptions} />
                             </div>
                             <div className="xl:col-span-10">
                               <Input label="Notes" placeholder="Optional feed note" value={expense.description} onChange={(value) => updateExpense(index, { description: value })} />
@@ -2484,6 +2490,7 @@ function createCowEntryRow(cows) {
   return {
     cow_id: cows[0]?.id || '',
     total_litres: '',
+    entry_shift: 'Morning',
     status: 'Recorded',
     notes: ''
   };
@@ -2553,6 +2560,7 @@ function createExpenseRow(categories, foods = [], cows = [], expenseType = 'comm
     food_name_snapshot: expenseType === 'feed' ? selectedFoodSnapshot?.food_name_snapshot || selectedFood?.name || '' : '',
     unit_type_snapshot: expenseType === 'feed' ? selectedFoodSnapshot?.unit_type_snapshot || selectedFood?.unit_type || 'kg' : '',
     rate_effective_from: expenseType === 'feed' ? selectedFoodSnapshot?.rate_effective_from || null : null,
+    entry_shift: expenseType === 'feed' ? 'Morning' : '',
     quantity_kg: '',
     unit_rate: expenseType === 'feed' ? Number(selectedFoodSnapshot?.unit_rate || 0) : '',
     amount: '',
@@ -2574,6 +2582,7 @@ function mergeExpenseRows(rows = []) {
         ...row,
         expense_type: 'feed',
         amount: Number(amount.toFixed(2)),
+        entry_shift: row.entry_shift || 'Morning',
         quantity_kg: Number(row.quantity_kg || 0),
         unit_rate: Number(row.unit_rate || 0),
         food_price_history_id: row.food_price_history_id || null,
@@ -3047,6 +3056,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                   <span>{litres(entry.total_litres)}</span>
                 </div>
                 <div className="mt-1 text-slate-500 dark:text-slate-400">{entry.cow_status || 'Lactating'}{entry.notes ? ` • ${entry.notes}` : ''}</div>
+                <div className="mt-1 text-slate-500 dark:text-slate-400">{entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning')}</div>
               </div>
             )) : <div className="text-sm text-slate-400 dark:text-slate-500">No cow-wise production recorded.</div>}
           </div>
@@ -3078,7 +3088,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                 </div>
                 <div className="mt-1 text-slate-500 dark:text-slate-400">
                   {(expense.expense_type || 'common') === 'feed'
-                    ? `${expense.cow_name || 'Cow'} • ${Number(expense.quantity_kg || 0).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'} • ${currency(expense.unit_rate || 0)}/${expense.unit_type === 'liter' ? 'L' : 'kg'}`
+                    ? `${expense.cow_name || 'Cow'} • ${Number(expense.quantity_kg || 0).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'} • ${currency(expense.unit_rate || 0)}/${expense.unit_type === 'liter' ? 'L' : 'kg'} • ${expense.entry_shift || 'Morning'}`
                     : (expense.payment_mode || 'Cash')}
                   {expense.description ? ` • ${expense.description}` : ''}
                 </div>
@@ -3133,7 +3143,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Cow</th>
                   <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Litres</th>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Status</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Shift</th>
                   <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Notes</th>
                 </tr>
               </thead>
@@ -3142,7 +3152,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                   <tr key={entry.id} className="border-t border-slate-200/60 dark:border-slate-600/40">
                     <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{entry.cow_name || 'Unknown cow'}</td>
                     <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{entry.total_litres}</td>
-                    <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{entry.cow_status || 'Lactating'}</td>
+                    <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning')}</td>
                     <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{entry.notes || '—'}</td>
                   </tr>
                 )) : <tr><td className="px-3 py-3 text-slate-400 dark:text-slate-500" colSpan="4">No cow production rows.</td></tr>}
@@ -3191,7 +3201,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Cow</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Qty</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Amount</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Payment mode</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Morning / evening</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Description</th>
                     </tr>
                   </thead>
@@ -3202,7 +3212,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{expense.cow_name || '—'}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—'}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{expense.amount}</td>
-                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{expense.payment_mode || 'Cash'}</td>
+                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{(expense.expense_type || 'common') === 'feed' ? (expense.entry_shift || 'Morning') : (expense.payment_mode || 'Cash')}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{expense.description || '—'}</td>
                       </tr>
                     )) : <tr><td className="px-3 py-3 text-slate-400 dark:text-slate-500" colSpan="6">No expense rows.</td></tr>}
