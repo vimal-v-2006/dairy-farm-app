@@ -1136,7 +1136,7 @@ function App() {
                        facts={[
                          { label: 'Today milk', value: litres(dashboard.today.totalMilkLitres), tone: 'sky' },
                          { label: 'Today remaining', value: litres(dashboard.today.remainingMilkLitres), tone: 'emerald' },
-                         { label: 'Today profit', value: currency(dashboard.today.profit), tone: dashboard.today.profit >= 0 ? 'emerald' : 'rose' }
+                         { label: 'Month profit', value: currency(dashboard.monthly.profit), tone: dashboard.monthly.profit >= 0 ? 'emerald' : 'rose' }
                        ]}
                       footer="Business overview"
                     />
@@ -3019,9 +3019,9 @@ function FactCard({ title, facts = [], footer = '' }) {
       <div className="display-font text-lg font-black tracking-tight">{title}</div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {facts.map((fact) => (
-          <div key={fact.label} className="rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-center">
+          <div key={fact.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-center">
             <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-300">{fact.label}</div>
-            <div className={`mt-2 text-2xl font-black ${fact.tone === 'rose' ? 'text-rose-300' : fact.tone === 'amber' ? 'text-amber-300' : fact.tone === 'emerald' ? 'text-emerald-300' : 'text-sky-300'}`}>{fact.value}</div>
+            <div className={`mt-2 min-w-0 break-words text-[1.35rem] font-black leading-tight sm:text-[1.55rem] ${fact.tone === 'rose' ? 'text-rose-300' : fact.tone === 'amber' ? 'text-amber-300' : fact.tone === 'emerald' ? 'text-emerald-300' : 'text-sky-300'}`}>{fact.value}</div>
           </div>
         ))}
       </div>
