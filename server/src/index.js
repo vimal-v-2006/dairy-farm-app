@@ -459,7 +459,7 @@ app.delete('/api/calves/:id', auth, (req, res) => {
 app.post('/api/calves/:id/expenses', auth, (req, res) => {
   const calf = getSingleValue('SELECT * FROM calves WHERE id=?', [req.params.id]);
   if (!calf) return fail(res, 404, 'Calf not found');
-  const { expense_date, expense_type, category_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, description, payment_mode } = req.body;
+  const { expense_date, expense_type, category_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode } = req.body;
   if (!expense_date) return fail(res, 400, 'Expense date is required');
   const resolvedFoodSnapshot = (expense_type || 'common') === 'feed' && food_item_id
     ? (food_name_snapshot || unit_type_snapshot || food_price_history_id || rate_effective_from ? {
@@ -470,9 +470,9 @@ app.post('/api/calves/:id/expenses', auth, (req, res) => {
         rate_effective_from: rate_effective_from || null
       } : resolveFoodRateSnapshot(food_item_id, expense_date))
     : null;
-  db.prepare(`INSERT INTO calf_expenses (calf_id, expense_date, expense_type, category_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, description, payment_mode)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`) 
-    .run(req.params.id, expense_date, expense_type || 'common', category_id || null, food_item_id || null, resolvedFoodSnapshot?.food_price_history_id || null, resolvedFoodSnapshot?.food_name_snapshot || null, resolvedFoodSnapshot?.unit_type_snapshot || null, resolvedFoodSnapshot?.rate_effective_from || null, Number(quantity_kg || 0), Number((resolvedFoodSnapshot?.unit_rate ?? unit_rate) || 0), Number(amount || 0), description || '', payment_mode || 'Cash');
+  db.prepare(`INSERT INTO calf_expenses (calf_id, expense_date, expense_type, category_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`) 
+    .run(req.params.id, expense_date, expense_type || 'common', category_id || null, food_item_id || null, resolvedFoodSnapshot?.food_price_history_id || null, resolvedFoodSnapshot?.food_name_snapshot || null, resolvedFoodSnapshot?.unit_type_snapshot || null, resolvedFoodSnapshot?.rate_effective_from || null, Number(quantity_kg || 0), Number((resolvedFoodSnapshot?.unit_rate ?? unit_rate) || 0), Number(amount || 0), (expense_type || 'common') === 'feed' ? (entry_shift || 'Morning') : null, description || '', payment_mode || 'Cash');
   ok(res, {});
 });
 

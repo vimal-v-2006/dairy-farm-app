@@ -104,6 +104,7 @@ function initDb() {
       quantity_kg REAL DEFAULT 0,
       unit_rate REAL DEFAULT 0,
       amount REAL DEFAULT 0,
+      entry_shift TEXT,
       description TEXT,
       payment_mode TEXT DEFAULT 'Cash',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -261,6 +262,9 @@ function initDb() {
   }
   if (calfExpenseColumns.length && !calfExpenseColumns.some((column) => column.name === 'rate_effective_from')) {
     db.exec('ALTER TABLE calf_expenses ADD COLUMN rate_effective_from TEXT');
+  }
+  if (calfExpenseColumns.length && !calfExpenseColumns.some((column) => column.name === 'entry_shift')) {
+    db.exec('ALTER TABLE calf_expenses ADD COLUMN entry_shift TEXT');
   }
 
   const foodColumns = db.prepare("PRAGMA table_info(food_items)").all();

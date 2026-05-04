@@ -85,7 +85,7 @@ function App() {
   const [cowForm, setCowForm] = useState({ name: '', breed: '', age: '', status: 'Lactating', status_date: today(), notes: '' });
   const [calfEditingId, setCalfEditingId] = useState(null);
   const [calfForm, setCalfForm] = useState({ name: '', breed: '', birth_date: today(), source_type: 'Raised', expected_lactation_date: '', purchase_price: '', paid_amount: '', status: 'Growing', notes: '' });
-  const [calfExpenseForm, setCalfExpenseForm] = useState({ calf_id: '', expense_date: today(), expense_type: 'common', category_id: '', food_item_id: '', food_price_history_id: null, food_name_snapshot: '', unit_type_snapshot: '', rate_effective_from: null, quantity_kg: '', unit_rate: '', amount: '', description: '', payment_mode: 'Cash' });
+  const [calfExpenseForm, setCalfExpenseForm] = useState({ calf_id: '', expense_date: today(), expense_type: 'common', category_id: '', food_item_id: '', food_price_history_id: null, food_name_snapshot: '', unit_type_snapshot: '', rate_effective_from: null, quantity_kg: '', unit_rate: '', amount: '', entry_shift: 'Morning', description: '', payment_mode: 'Cash' });
   const [buyerEditingId, setBuyerEditingId] = useState(null);
   const [buyerForm, setBuyerForm] = useState({ name: '', location: '', default_rate: '', contact: '', notes: '', active: true });
   const [categoryName, setCategoryName] = useState('');
@@ -639,9 +639,10 @@ function App() {
         type: expense.expense_type === 'feed' ? 'Food' : 'Common',
         expense: expense.food_name || expense.category_name || '—',
         quantity_kg: expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—',
+        shifts: expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—',
         amount: currency(expense.amount || 0),
         description: expense.description || '—',
-        payment_mode: expense.payment_mode || 'Cash'
+        payment_mode: expense.expense_type === 'feed' ? '—' : (expense.payment_mode || 'Cash')
       }))
     });
   }
@@ -677,9 +678,10 @@ function App() {
         type: expense.expense_type === 'feed' ? 'Food' : 'Common',
         expense: expense.food_name || expense.category_name || '—',
         quantity_kg: expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—',
+        shifts: expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—',
         amount: currency(expense.amount || 0),
         description: expense.description || '—',
-        payment_mode: expense.payment_mode || 'Cash'
+        payment_mode: expense.expense_type === 'feed' ? '—' : (expense.payment_mode || 'Cash')
       })))
     });
   }
@@ -972,7 +974,7 @@ function App() {
   }
 
   function resetCalfExpenseForm() {
-    setCalfExpenseForm({ calf_id: state.calves[0]?.calf?.id || state.calves[0]?.id || '', expense_date: today(), expense_type: 'common', category_id: state.categories[0]?.id || '', food_item_id: '', food_price_history_id: null, food_name_snapshot: '', unit_type_snapshot: '', rate_effective_from: null, quantity_kg: '', unit_rate: '', amount: '', description: '', payment_mode: 'Cash' });
+    setCalfExpenseForm({ calf_id: state.calves[0]?.calf?.id || state.calves[0]?.id || '', expense_date: today(), expense_type: 'common', category_id: state.categories[0]?.id || '', food_item_id: '', food_price_history_id: null, food_name_snapshot: '', unit_type_snapshot: '', rate_effective_from: null, quantity_kg: '', unit_rate: '', amount: '', entry_shift: 'Morning', description: '', payment_mode: 'Cash' });
   }
 
   function editBuyer(buyer) {
@@ -1481,9 +1483,9 @@ function App() {
                       if (value === 'feed') {
                         const food = state.foods[0];
                         const foodSnapshot = resolveFoodSnapshot(state.foods, food?.id, calfExpenseForm.expense_date);
-                        setCalfExpenseForm((prev) => ({ ...prev, expense_type: 'feed', category_id: '', food_item_id: food?.id || '', food_price_history_id: foodSnapshot?.food_price_history_id || null, food_name_snapshot: foodSnapshot?.food_name_snapshot || food?.name || '', unit_type_snapshot: foodSnapshot?.unit_type_snapshot || food?.unit_type || 'kg', rate_effective_from: foodSnapshot?.rate_effective_from || null, quantity_kg: '', unit_rate: foodSnapshot?.unit_rate || '', amount: '', description: '' }));
+                        setCalfExpenseForm((prev) => ({ ...prev, expense_type: 'feed', category_id: '', food_item_id: food?.id || '', food_price_history_id: foodSnapshot?.food_price_history_id || null, food_name_snapshot: foodSnapshot?.food_name_snapshot || food?.name || '', unit_type_snapshot: foodSnapshot?.unit_type_snapshot || food?.unit_type || 'kg', rate_effective_from: foodSnapshot?.rate_effective_from || null, quantity_kg: '', unit_rate: foodSnapshot?.unit_rate || '', amount: '', entry_shift: 'Morning', description: '' }));
                       } else {
-                        setCalfExpenseForm((prev) => ({ ...prev, expense_type: 'common', category_id: prev.category_id || state.categories[0]?.id || '', food_item_id: '', food_price_history_id: null, food_name_snapshot: '', unit_type_snapshot: '', rate_effective_from: null, quantity_kg: '', unit_rate: '', amount: prev.amount, description: prev.description }));
+                        setCalfExpenseForm((prev) => ({ ...prev, expense_type: 'common', category_id: prev.category_id || state.categories[0]?.id || '', food_item_id: '', food_price_history_id: null, food_name_snapshot: '', unit_type_snapshot: '', rate_effective_from: null, quantity_kg: '', unit_rate: '', amount: prev.amount, entry_shift: 'Morning', description: prev.description }));
                       }
                     }} options={[{ label: 'Common', value: 'common' }, { label: 'Food', value: 'feed' }]} />
 
@@ -1509,7 +1511,9 @@ function App() {
                         <div />
                       </>
                     )}
-                    <SelectInput label="Payment mode" value={calfExpenseForm.payment_mode} onChange={(value) => setCalfExpenseForm((prev) => ({ ...prev, payment_mode: value }))} options={paymentModeOptions} />
+                    {calfExpenseForm.expense_type === 'feed'
+                      ? <SelectInput label="Morning / Evening" value={calfExpenseForm.entry_shift || 'Morning'} onChange={(value) => setCalfExpenseForm((prev) => ({ ...prev, entry_shift: value }))} options={shiftOptions} />
+                      : <SelectInput label="Payment mode" value={calfExpenseForm.payment_mode} onChange={(value) => setCalfExpenseForm((prev) => ({ ...prev, payment_mode: value }))} options={paymentModeOptions} />}
                   </div>
                   {calfExpenseForm.expense_type === 'feed' && <TextArea label="Description" placeholder="Optional feed note" value={calfExpenseForm.description} onChange={(value) => setCalfExpenseForm((prev) => ({ ...prev, description: value }))} />}
                   <div className="mt-auto pt-4">
@@ -1576,6 +1580,7 @@ function App() {
                                 <th className="px-3 py-2 text-left">Type</th>
                                 <th className="px-3 py-2 text-left">Expense</th>
                                 <th className="px-3 py-2 text-left">Qty</th>
+                                <th className="px-3 py-2 text-left">Shifts</th>
                                 <th className="px-3 py-2 text-left">Amount</th>
                                 <th className="px-3 py-2 text-left">Description</th>
                                 <th className="px-3 py-2 text-left">Action</th>
@@ -1588,11 +1593,12 @@ function App() {
                                   <td className="px-3 py-2">{expense.expense_type === 'feed' ? 'Food' : 'Common'}</td>
                                   <td className="px-3 py-2">{expense.food_name || expense.category_name || '—'}</td>
                                   <td className="px-3 py-2">{expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—'}</td>
+                                  <td className="px-3 py-2">{expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—'}</td>
                                   <td className="px-3 py-2 font-semibold">{currency(expense.amount || 0)}</td>
                                   <td className="px-3 py-2">{expense.description || '—'}</td>
                                   <td className="px-3 py-2"><button onClick={() => deleteCalfExpense(expense.id)} className="text-red-500">Delete</button></td>
                                 </tr>
-                              )) : <tr><td className="px-3 py-3 opacity-60" colSpan="7">No calf expenses yet.</td></tr>}
+                              )) : <tr><td className="px-3 py-3 opacity-60" colSpan="8">No calf expenses yet.</td></tr>}
                             </tbody>
                           </table>
                         </div>
