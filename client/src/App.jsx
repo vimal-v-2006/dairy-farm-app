@@ -1726,7 +1726,6 @@ function App() {
                                       <th className="px-3 py-2 text-left">Food</th>
                                       <th className="px-3 py-2 text-left">Qty</th>
                                       <th className="px-3 py-2 text-left">Shifts</th>
-                                      <th className="px-3 py-2 text-left">Notes</th>
                                       <th className="px-3 py-2 text-left">Amount</th>
                                     </tr>
                                   </thead>
@@ -1737,10 +1736,9 @@ function App() {
                                         <td className="px-3 py-2">{row.foodName}</td>
                                         <td className="px-3 py-2">{Number(row.quantityKg || 0).toFixed(2)} {row.unitType === 'liter' ? 'L' : 'kg'}</td>
                                         <td className="px-3 py-2">{row.entryShift || 'Morning'}</td>
-                                        <td className="px-3 py-2">{row.notes || '—'}</td>
                                         <td className="px-3 py-2 font-semibold">{currency(row.amount || 0)}</td>
                                       </tr>
-                                    )) : <tr><td className="px-3 py-3 text-slate-500 dark:text-slate-400" colSpan="6">No feed history recorded yet.</td></tr>}
+                                    )) : <tr><td className="px-3 py-3 text-slate-500 dark:text-slate-400" colSpan="5">No feed history recorded yet.</td></tr>}
                                   </tbody>
                                 </table>
                                </div>

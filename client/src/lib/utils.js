@@ -819,13 +819,12 @@ export async function exportSingleCowPdf(cow) {
   autoTable(doc, {
     startY: afterMilkTable + 4,
     margin: { left: margin, right: margin },
-    head: [['Date', 'Food', 'Quantity', 'Shifts', 'Notes', 'Amount (Rs.)']],
+    head: [['Date', 'Food', 'Quantity', 'Shifts', 'Amount (Rs.)']],
     body: (cow.feedHistory || []).map((row) => [
       row.entryDate,
       row.foodName || '—',
       `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`,
       row.entryShift || 'Morning',
-      row.notes || '—',
       Number(row.amount || 0).toFixed(2)
     ]),
     styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
@@ -971,8 +970,8 @@ export async function exportAllCowsPdf(cows) {
       autoTable(doc, {
         startY: y,
         margin: { left: margin, right: margin },
-        head: [['Date', 'Food', 'Qty', 'Shifts', 'Notes', 'Amount']],
-        body: cow.feedHistory.map((row) => [row.entryDate, row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', row.notes || '—', Number(row.amount || 0).toFixed(2)]),
+        head: [['Date', 'Food', 'Qty', 'Shifts', 'Amount']],
+        body: cow.feedHistory.map((row) => [row.entryDate, row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', Number(row.amount || 0).toFixed(2)]),
         styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
         headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 250, 252] },
