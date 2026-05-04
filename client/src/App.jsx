@@ -1985,7 +1985,7 @@ function App() {
                       <button onClick={() => exportDetailedDailyPdf({ fileName: exportMeta.fileName, title: exportMeta.title, subtitle: exportMeta.subtitle, dailyData: state.dailyData, reportMeta })} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-red-500 to-rose-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-red-500/20 transition hover:shadow-xl hover:shadow-red-500/30">PDF</button>
                       <button onClick={() => exportBusinessRegisterExcel(exportMeta.fileName, { title: exportMeta.title, table: reportRegisterTable, reportMeta })} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-xl hover:shadow-emerald-500/30">Excel</button>
                     </div>
-                    <p className="mt-4 text-sm opacity-70">PDF: Detailed per-day report with cow, sales, and expense tables. Excel: Business register table with buyer and expense columns.</p>
+                    <p className="mt-4 text-sm opacity-70">PDF: Detailed per-day report with cow, sales, and expense tables. Excel: Business register table with buyer, expense, and shift summary columns.</p>
                   </Card>
                 </>
               )}
@@ -2261,6 +2261,16 @@ function buildPlainRegisterTable(items) {
   const sortedItems = [...items].sort((a, b) => a.entry.entry_date.localeCompare(b.entry.entry_date));
   const buyerNames = Array.from(new Set(sortedItems.flatMap((item) => (item.milkSales || []).map((sale) => sale.buyer_name || 'Unknown buyer'))));
   const expenseNames = Array.from(new Set(sortedItems.flatMap((item) => (item.expenses || []).map((expense) => getExpenseDisplayName(expense)))));
+  const summarizeShiftRows = (rows, labelBuilder) => {
+    const parts = rows
+      .map((row) => {
+        const label = labelBuilder(row);
+        const shift = row.entry_shift || (Number(row.evening_litres || 0) > 0 ? 'Evening' : 'Morning');
+        return label ? `${label} (${shift})` : shift;
+      })
+      .filter(Boolean);
+    return parts.length ? parts.join(', ') : '—';
+  };
 
   const rows = sortedItems.map((item) => {
     const buyers = {};
@@ -2293,12 +2303,17 @@ function buildPlainRegisterTable(items) {
       totalExpenses: Number(item.entry.total_expenses || 0),
       totalIncome: Number(item.entry.total_income || 0),
       profit: Number(item.entry.profit || 0),
+      cowShifts: summarizeShiftRows(item.cowEntries || [], (entry) => entry.cow_name || 'Cow'),
+      feedShifts: summarizeShiftRows(
+        (item.expenses || []).filter((expense) => (expense.expense_type || 'common') === 'feed'),
+        (expense) => expense.food_name || expense.cow_name || 'Feed'
+      ),
       buyers,
       expenses
     };
   });
 
-  return { buyerNames, expenseNames, rows };
+  return { buyerNames, expenseNames, rows, hasShiftColumns: rows.some((row) => row.cowShifts !== '—' || row.feedShifts !== '—') };
 }
 
 function buildCowRecordSummaries(cows = [], dailyData = []) {
@@ -2330,6 +2345,7 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
       history: milkRows.map((entry) => ({
         entryDate: entry.entryDate,
         totalLitres: Number(entry.total_litres || 0),
+        entryShift: entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning'),
         status: entry.status || 'Recorded',
         notes: entry.notes || ''
       })),
@@ -2340,6 +2356,7 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
         unitType: row.unit_type || 'kg',
         unitRate: Number(row.unit_rate || 0),
         amount: Number(row.amount || 0),
+        entryShift: row.entry_shift || 'Morning',
         notes: row.description || ''
       }))
     };
@@ -2655,6 +2672,8 @@ function PlainRegisterTable({ table, fullScreen = false }) {
             <th rowSpan={2} className={headClass}>Total expenses</th>
             <th rowSpan={2} className={headClass}>Total income</th>
             <th rowSpan={2} className={headClass}>Profit</th>
+            {table.hasShiftColumns ? <th rowSpan={2} className={`${headClass} text-left`}>Cow shifts</th> : null}
+            {table.hasShiftColumns ? <th rowSpan={2} className={`${headClass} text-left`}>Feed shifts</th> : null}
           </tr>
           <tr className="bg-slate-50 dark:bg-slate-900/70">
             {table.buyerNames.flatMap((buyerName) => ([
@@ -2681,6 +2700,8 @@ function PlainRegisterTable({ table, fullScreen = false }) {
               <td className={cellClass}>{showNumber(row.totalExpenses)}</td>
               <td className={cellClass}>{showNumber(row.totalIncome)}</td>
               <td className={`${cellClass} font-semibold`}>{showNumber(row.profit)}</td>
+              {table.hasShiftColumns ? <td className="border border-slate-300/80 px-3 py-2 text-left align-top min-w-[12rem]">{row.cowShifts || '—'}</td> : null}
+              {table.hasShiftColumns ? <td className="border border-slate-300/80 px-3 py-2 text-left align-top min-w-[12rem]">{row.feedShifts || '—'}</td> : null}
             </tr>
           ))}
         </tbody>
@@ -2700,6 +2721,8 @@ function PlainRegisterTable({ table, fullScreen = false }) {
             <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.totalExpenses)}</td>
             <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.totalIncome)}</td>
             <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.profit)}</td>
+            {table.hasShiftColumns ? <td className="border border-slate-400/80 px-3 py-3 text-left font-bold">—</td> : null}
+            {table.hasShiftColumns ? <td className="border border-slate-400/80 px-3 py-3 text-left font-bold">—</td> : null}
           </tr>
         </tfoot>
       </table>
