@@ -1136,7 +1136,7 @@ function App() {
                        facts={[
                          { label: 'Today milk', value: litres(dashboard.today.totalMilkLitres), tone: 'sky' },
                          { label: 'Today remaining', value: litres(dashboard.today.remainingMilkLitres), tone: 'emerald' },
-                         { label: 'Month profit', value: currency(dashboard.monthly.profit), tone: dashboard.monthly.profit >= 0 ? 'emerald' : 'rose' }
+                         { label: 'Today profit', value: currency(dashboard.today.profit), tone: dashboard.today.profit >= 0 ? 'emerald' : 'rose' }
                        ]}
                       footer="Business overview"
                     />
