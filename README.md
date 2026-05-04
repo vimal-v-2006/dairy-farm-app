@@ -1,4 +1,4 @@
-# Dairy Farm Financial Management App
+# **Milk Business Pro** — Dairy Farm Financial Management App
 
 A professional single-user dairy business management application for tracking milk production, sales, expenses, calves, cows, buyers, reports, and capital/assets recovery.
 
@@ -731,7 +731,7 @@ If you want, you can also add screenshots under a section like:
 
 ## Summary
 
-This Dairy Farm Financial Management App is a practical business tool for managing:
+**Milk Business Pro** is a practical business tool for managing:
 - daily dairy operations
 - farm finances
 - cow and calf records
