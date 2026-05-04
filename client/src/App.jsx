@@ -1678,30 +1678,25 @@ function App() {
                             </div>
                           </div>
 
-                          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                             <RecordStat title="Current status" value={selectedCowRecord.status || 'Lactating'} tone={(selectedCowRecord.status || 'Lactating') === 'Lactating' ? 'emerald' : 'red'} />
                             <RecordStat title="Total milk" value={litres(selectedCowRecord.totalMilk)} tone="sky" />
                             <RecordStat title="Milk entries" value={selectedCowRecord.recordCount} tone="amber" />
                             <RecordStat title="Last milk date" value={selectedCowRecord.lastRecordedDate || '—'} tone="violet" />
-                            <RecordStat title="Last milk shift" value={selectedCowRecord.lastMilkShift || '—'} tone="emerald" />
                             <RecordStat title="Feed used" value={`${Number(selectedCowRecord.totalFeedKg || 0).toFixed(2)} ${selectedCowRecord.feedHistory.some((row) => row.unitType === 'liter') ? 'units' : 'kg'}`} tone="teal" />
                             <RecordStat title="Feed budget" value={currency(selectedCowRecord.totalFeedBudget || 0)} tone="orange" />
-                            <RecordStat title="Last feed shift" value={selectedCowRecord.lastFeedShift || '—'} tone="cyan" />
                           </div>
 
                           <div className="mt-5 grid gap-4 xl:grid-cols-2">
                             <div className="rounded-3xl border border-white/30 bg-white/72 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-slate-950/45">
-                              <div className="mb-3 flex items-center justify-between gap-2">
-                                <div className="text-sm font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">Milk history by date</div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Morning {selectedCowRecord.morningMilkEntries || 0} • Evening {selectedCowRecord.eveningMilkEntries || 0}</div>
-                              </div>
+                              <div className="mb-3 text-sm font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">Milk history by date</div>
                               <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-50/95 dark:bg-slate-900/95">
                                 <table className="min-w-full text-sm text-slate-800 dark:text-slate-100">
                                   <thead className="bg-slate-800 text-white dark:bg-slate-900">
                                     <tr>
                                       <th className="px-3 py-2 text-left">Date</th>
                                       <th className="px-3 py-2 text-left">Milk litres</th>
-                                      <th className="px-3 py-2 text-left">Morning / evening</th>
+                                      <th className="px-3 py-2 text-left">Shifts</th>
                                       <th className="px-3 py-2 text-left">Entry status</th>
                                       <th className="px-3 py-2 text-left">Notes</th>
                                     </tr>
@@ -1722,10 +1717,7 @@ function App() {
                             </div>
 
                             <div className="rounded-3xl border border-white/30 bg-white/72 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-slate-950/45">
-                              <div className="mb-3 flex items-center justify-between gap-2">
-                                <div className="text-sm font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">Feed history by date</div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Morning {selectedCowRecord.morningFeedEntries || 0} • Evening {selectedCowRecord.eveningFeedEntries || 0}</div>
-                              </div>
+                              <div className="mb-3 text-sm font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">Feed history by date</div>
                               <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-50/95 dark:bg-slate-900/95">
                                 <table className="min-w-full text-sm text-slate-800 dark:text-slate-100">
                                   <thead className="bg-slate-800 text-white dark:bg-slate-900">
@@ -1733,7 +1725,7 @@ function App() {
                                       <th className="px-3 py-2 text-left">Date</th>
                                       <th className="px-3 py-2 text-left">Food</th>
                                       <th className="px-3 py-2 text-left">Qty</th>
-                                      <th className="px-3 py-2 text-left">Morning / evening</th>
+                                      <th className="px-3 py-2 text-left">Shifts</th>
                                       <th className="px-3 py-2 text-left">Notes</th>
                                       <th className="px-3 py-2 text-left">Amount</th>
                                     </tr>
@@ -2332,11 +2324,6 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
     const totalFeedBudget = feedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const lastRecordedDate = milkRows[0]?.entryDate || '';
     const lastFeedDate = feedRows[0]?.entryDate || '';
-    const morningMilkEntries = milkRows.filter((entry) => (entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning')) === 'Morning').length;
-    const eveningMilkEntries = milkRows.filter((entry) => (entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning')) === 'Evening').length;
-    const morningFeedEntries = feedRows.filter((row) => (row.entry_shift || 'Morning') === 'Morning').length;
-    const eveningFeedEntries = feedRows.filter((row) => (row.entry_shift || 'Morning') === 'Evening').length;
-
     return {
       ...cow,
       totalMilk: Number(totalMilk.toFixed(2)),
@@ -2344,12 +2331,6 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
       totalFeedBudget: Number(totalFeedBudget.toFixed(2)),
       lastRecordedDate,
       lastFeedDate,
-      lastMilkShift: milkRows[0]?.entry_shift || (Number(milkRows[0]?.evening_litres || 0) > 0 ? 'Evening' : 'Morning'),
-      lastFeedShift: feedRows[0]?.entry_shift || 'Morning',
-      morningMilkEntries,
-      eveningMilkEntries,
-      morningFeedEntries,
-      eveningFeedEntries,
       recordCount: milkRows.length,
       history: milkRows.map((entry) => ({
         entryDate: entry.entryDate,

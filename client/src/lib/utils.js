@@ -646,7 +646,7 @@ export async function exportDetailedDailyPdf({ fileName, title, subtitle, dailyD
     ]);
 
     if (cowRows.length) {
-      drawSectionTable('Cow-wise Production', ['Cow Name', 'Litres', 'Morning / Evening', 'Status', 'Notes'], cowRows, [22, 163, 74]);
+      drawSectionTable('Cow-wise Production', ['Cow Name', 'Litres', 'Shifts', 'Status', 'Notes'], cowRows, [22, 163, 74]);
     }
 
     const saleRows = (item.milkSales || []).map((sale) => [
@@ -764,10 +764,8 @@ export async function exportSingleCowPdf(cow) {
     { label: 'Total Milk', value: `${Number(cow.totalMilk || 0).toFixed(2)} L` },
     { label: 'Milk Entries', value: String(cow.recordCount || 0) },
     { label: 'Last Record', value: cow.lastRecordedDate || 'None' },
-    { label: 'Last Milk Shift', value: cow.lastMilkShift || '—' },
     { label: 'Feed Used', value: `${Number(cow.totalFeedKg || 0).toFixed(2)} ${feedUnit === 'mixed' ? 'units' : 'kg'}` },
-    { label: 'Feed Budget', value: `Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}` },
-    { label: 'Last Feed Shift', value: cow.lastFeedShift || '—' }
+    { label: 'Feed Budget', value: `Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}` }
   ];
 
   const boxWidth = (pageWidth - margin * 2 - (stats.length - 1) * 4) / stats.length;
@@ -796,7 +794,7 @@ export async function exportSingleCowPdf(cow) {
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
-    head: [['Date', 'Milk (L)', 'Morning / Evening', 'Status', 'Notes']],
+    head: [['Date', 'Milk (L)', 'Shifts', 'Status', 'Notes']],
     body: (cow.history || []).map((row) => [
       row.entryDate,
       `${Number(row.totalLitres || 0).toFixed(2)}`,
@@ -821,7 +819,7 @@ export async function exportSingleCowPdf(cow) {
   autoTable(doc, {
     startY: afterMilkTable + 4,
     margin: { left: margin, right: margin },
-    head: [['Date', 'Food', 'Quantity', 'Morning / Evening', 'Notes', 'Amount (Rs.)']],
+    head: [['Date', 'Food', 'Quantity', 'Shifts', 'Notes', 'Amount (Rs.)']],
     body: (cow.feedHistory || []).map((row) => [
       row.entryDate,
       row.foodName || '—',
@@ -930,7 +928,7 @@ export async function exportAllCowsPdf(cows) {
     doc.setFontSize(7);
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    const statsLine = `Milk: ${Number(cow.totalMilk || 0).toFixed(2)} L  |  Entries: ${cow.recordCount || 0}  |  Last milk shift: ${cow.lastMilkShift || '—'}  |  Feed: ${Number(cow.totalFeedKg || 0).toFixed(2)} ${(cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'units' : 'kg'}  |  Last feed shift: ${cow.lastFeedShift || '—'}`;
+    const statsLine = `Milk: ${Number(cow.totalMilk || 0).toFixed(2)} L  |  Entries: ${cow.recordCount || 0}  |  Feed: ${Number(cow.totalFeedKg || 0).toFixed(2)} ${(cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'units' : 'kg'}  |  Budget: Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}  |  Last: ${cow.lastRecordedDate || '—'}`;
     doc.text(statsLine, margin + 6, y + 21, { maxWidth: pageWidth - margin * 2 - 12 });
 
     y += 24;
@@ -949,7 +947,7 @@ export async function exportAllCowsPdf(cows) {
       autoTable(doc, {
         startY: y,
         margin: { left: margin, right: margin },
-        head: [['Date', 'Milk (L)', 'Morning / Evening', 'Status', 'Notes']],
+        head: [['Date', 'Milk (L)', 'Shifts', 'Status', 'Notes']],
         body: cow.history.map((row) => [row.entryDate, Number(row.totalLitres || 0).toFixed(2), row.entryShift || 'Morning', row.status || 'Recorded', row.notes || '—']),
         styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
         headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
@@ -973,7 +971,7 @@ export async function exportAllCowsPdf(cows) {
       autoTable(doc, {
         startY: y,
         margin: { left: margin, right: margin },
-        head: [['Date', 'Food', 'Qty', 'Morning / Evening', 'Notes', 'Amount']],
+        head: [['Date', 'Food', 'Qty', 'Shifts', 'Notes', 'Amount']],
         body: cow.feedHistory.map((row) => [row.entryDate, row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', row.notes || '—', Number(row.amount || 0).toFixed(2)]),
         styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
         headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
