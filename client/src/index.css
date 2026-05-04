@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;700&display=swap');
+@import 'tailwindcss';
+
+:root {
+  color-scheme: light;
+  --bg: #eef4ff;
+  --card: rgba(255,255,255,0.66);
+  --text: #0f172a;
+  --soft-shadow: 0 20px 60px rgba(15,23,42,0.10);
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #09111f;
+  --card: rgba(15,23,42,0.72);
+  --text: #e5eefc;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top right, rgba(56,189,248,.22), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(34,197,94,.20), transparent 24%),
+    var(--bg);
+  color: var(--text);
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+
+.display-font {
+  font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: var(--soft-shadow);
+}
+
+.premium-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.premium-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.18), transparent 34%);
+  pointer-events: none;
+}
+
+.premium-hero {
+  background: linear-gradient(135deg, rgba(255,255,255,0.88), rgba(209,250,229,0.82) 58%, rgba(191,219,254,0.82));
+  box-shadow: 0 28px 70px rgba(16,185,129,0.14);
+  border: 1px solid rgba(255,255,255,0.24);
+}
+
+.floating-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(26px);
+  animation: floatOrb 8s ease-in-out infinite;
+}
+
+@keyframes floatOrb {
+  0%, 100% { transform: translateY(0px) translateX(0px); }
+  50% { transform: translateY(-16px) translateX(10px); }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,.55); border-radius: 999px; }
