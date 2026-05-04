@@ -718,26 +718,6 @@ Example:
 
 ---
 
-## Author / Repository Notes
-
-Before pushing to GitHub, you may want to customize:
-- repository name
-- screenshots
-- license
-- demo images
-- deployment instructions
-- contact/support details
-
-If you want, you can also add screenshots under a section like:
-
-```md
-## Screenshots
-![Dashboard](https://raw.githubusercontent.com/vimal-v-2006/dairy-farm-app/main/docs/dashboard.png)
-![Daily Entry](https://raw.githubusercontent.com/vimal-v-2006/dairy-farm-app/main/docs/daily-entry.png)
-```
-
----
-
 ## Summary
 
 **Milk Business Pro** is a practical business tool for managing:
