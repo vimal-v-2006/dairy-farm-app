@@ -276,22 +276,39 @@ function getDashboard() {
   const monthStart = dayjs().startOf('month').format('YYYY-MM-DD');
   const monthEnd = dayjs().endOf('month').format('YYYY-MM-DD');
 
-  const todayEntry = getSingleValue('SELECT * FROM daily_entries WHERE entry_date = ?', [today]) || {};
+  const todayEntry = getSingleValue('SELECT * FROM daily_entries WHERE entry_date = ?', [today]) || null;
+  const latestEntry = getSingleValue('SELECT * FROM daily_entries ORDER BY entry_date DESC, id DESC LIMIT 1') || null;
+  const snapshotEntry = todayEntry || latestEntry || {};
   const monthly = getSingleValue(`SELECT COALESCE(SUM(total_income),0) income, COALESCE(SUM(total_expenses),0) expenses, COALESCE(SUM(profit),0) profit, COALESCE(SUM(total_milk_litres),0) milk FROM daily_entries WHERE entry_date BETWEEN ? AND ?`, [monthStart, monthEnd]);
-  const buyerSplit = db.prepare(`SELECT b.name, ROUND(SUM(ms.litres),2) value FROM milk_sales ms LEFT JOIN buyers b ON b.id=ms.buyer_id GROUP BY b.name ORDER BY value DESC`).all();
+  const buyerSplit = db.prepare(`SELECT COALESCE(b.name, 'Unknown buyer') name, ROUND(SUM(ms.litres),2) value
+    FROM milk_sales ms
+    LEFT JOIN buyers b ON b.id=ms.buyer_id
+    LEFT JOIN daily_entries d ON d.id=ms.daily_entry_id
+    WHERE d.entry_date BETWEEN ? AND ?
+    GROUP BY COALESCE(b.name, 'Unknown buyer')
+    ORDER BY value DESC`).all(monthStart, monthEnd);
   const trend = db.prepare(`SELECT entry_date as date, total_income as income, total_expenses as expenses, profit, total_milk_litres as milk, remaining_milk_litres as remaining FROM daily_entries ORDER BY entry_date DESC LIMIT 30`).all().reverse();
-  const cowSummary = db.prepare(`SELECT c.id, c.name, c.status, ROUND(COALESCE(SUM(me.total_litres),0),2) totalMilk, COUNT(CASE WHEN me.total_litres=0 THEN 1 END) nilDays
-    FROM cows c LEFT JOIN cow_milk_entries me ON me.cow_id=c.id
-    LEFT JOIN daily_entries d ON d.id=me.daily_entry_id AND d.entry_date BETWEEN ? AND ?
-    GROUP BY c.id ORDER BY totalMilk DESC`).all([monthStart, monthEnd]);
+  const cowSummary = db.prepare(`SELECT
+      c.id,
+      c.name,
+      c.status,
+      ROUND(COALESCE(SUM(CASE WHEN d.entry_date BETWEEN ? AND ? THEN me.total_litres ELSE 0 END),0),2) totalMilk,
+      COUNT(CASE WHEN d.entry_date BETWEEN ? AND ? AND me.total_litres = 0 THEN 1 END) nilDays
+    FROM cows c
+    LEFT JOIN cow_milk_entries me ON me.cow_id = c.id
+    LEFT JOIN daily_entries d ON d.id = me.daily_entry_id
+    GROUP BY c.id
+    ORDER BY totalMilk DESC, c.name ASC`).all(monthStart, monthEnd, monthStart, monthEnd);
 
   return {
     today: {
-      totalMilkLitres: Number(todayEntry.total_milk_litres || 0),
-      totalIncome: Number(todayEntry.total_income || 0),
-      totalExpenses: Number(todayEntry.total_expenses || 0),
-      profit: Number(todayEntry.profit || 0),
-      remainingMilkLitres: Number(todayEntry.remaining_milk_litres || 0)
+      totalMilkLitres: Number(snapshotEntry.total_milk_litres || 0),
+      totalIncome: Number(snapshotEntry.total_income || 0),
+      totalExpenses: Number(snapshotEntry.total_expenses || 0),
+      profit: Number(snapshotEntry.profit || 0),
+      remainingMilkLitres: Number(snapshotEntry.remaining_milk_litres || 0),
+      snapshotDate: snapshotEntry.entry_date || null,
+      isTodaySnapshot: !!todayEntry
     },
     monthly: {
       income: Number(monthly.income || 0),
@@ -306,7 +323,7 @@ function getDashboard() {
       best: cowSummary[0] || null,
       low: cowSummary[cowSummary.length - 1] || null
     },
-    lastUpdated: todayEntry.updated_at || null
+    lastUpdated: snapshotEntry.updated_at || null
   };
 }
 

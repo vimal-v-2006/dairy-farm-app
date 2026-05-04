@@ -156,6 +156,13 @@ function App() {
 
   const dashboard = state.dashboard;
   const trend = dashboard?.charts?.trend || [];
+  const dashboardSnapshotDate = dashboard?.today?.snapshotDate || null;
+  const dashboardUsesTodaySnapshot = dashboard?.today?.isTodaySnapshot !== false;
+  const dashboardMilkLabel = dashboardUsesTodaySnapshot ? "Today's milk" : 'Latest saved milk';
+  const dashboardRemainingLabel = dashboardUsesTodaySnapshot ? 'Today remaining' : 'Latest remaining';
+  const dashboardIncomeLabel = dashboardUsesTodaySnapshot ? "Today's income" : 'Latest income';
+  const dashboardExpensesLabel = dashboardUsesTodaySnapshot ? "Today's expenses" : 'Latest expenses';
+  const dashboardProfitLabel = dashboardUsesTodaySnapshot ? "Today's profit/loss" : 'Latest profit/loss';
   const latestTrendProfit = Number(trend[trend.length - 1]?.profit || 0);
   const topBuyer = dashboard?.charts?.buyerSplit?.[0] || null;
   const currentSavedItem = state.dailyData.find((item) => item.entry.entry_date === dailyForm.entry_date) || null;
@@ -302,7 +309,7 @@ function App() {
         remaining_milk_notes: parsedNotes.remainingNotes,
         cowEntries: (data.cowEntries || []).map((entry) => ({
           cow_id: entry.cow_id || '',
-          total_litres: entry.total_litres || '',
+          total_litres: entry.total_litres ?? '',
           entry_shift: entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning'),
           status: entry.status || 'Recorded',
           notes: entry.notes || ''
@@ -371,7 +378,7 @@ function App() {
         ...dailyForm,
         total_milk_litres: Number(dailyForm.entry_mode === 'cows' ? dailyCowTotal : (dailyForm.total_milk_litres || 0)),
         cowEntries: dailyForm.entry_mode === 'cows'
-          ? dailyForm.cowEntries.filter((row) => row.cow_id && row.total_litres).map((row) => ({
+          ? dailyForm.cowEntries.filter((row) => row.cow_id && row.total_litres !== '' && row.total_litres !== null && row.total_litres !== undefined).map((row) => ({
               ...row,
               total_litres: Number(row.total_litres || 0)
             }))
@@ -1134,21 +1141,21 @@ function App() {
                     <FactCard
                       title="Quick dairy facts"
                        facts={[
-                         { label: 'Today milk', value: litres(dashboard.today.totalMilkLitres), tone: 'sky' },
-                         { label: 'Today remaining', value: litres(dashboard.today.remainingMilkLitres), tone: 'emerald' },
+                         { label: dashboardUsesTodaySnapshot ? 'Today milk' : 'Latest milk', value: litres(dashboard.today.totalMilkLitres), tone: 'sky' },
+                         { label: dashboardUsesTodaySnapshot ? 'Today remaining' : 'Latest remaining', value: litres(dashboard.today.remainingMilkLitres), tone: 'emerald' },
                          { label: 'Month profit', value: currency(dashboard.monthly.profit), tone: dashboard.monthly.profit >= 0 ? 'emerald' : 'rose' }
                        ]}
-                      footer="Business overview"
+                      footer={dashboardUsesTodaySnapshot ? 'Business overview' : `Business overview • latest saved ${dashboardSnapshotDate || '—'}`}
                     />
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <StatCard icon={Droplets} label="Today's milk" value={litres(dashboard.today.totalMilkLitres)} tone="blue" sub={`Remaining ${litres(dashboard.today.remainingMilkLitres)}`} />
-                <StatCard icon={CircleDollarSign} label="Today's income" value={currency(dashboard.today.totalIncome)} tone="green" />
-                <StatCard icon={CircleDollarSign} label="Today's expenses" value={currency(dashboard.today.totalExpenses)} tone="orange" />
-                <StatCard icon={TrendingUp} label="Today's profit/loss" value={currency(dashboard.today.profit)} tone={dashboard.today.profit >= 0 ? 'green' : 'red'} sub={`Updated ${dashboard.lastUpdated || '—'}`} />
+                <StatCard icon={Droplets} label={dashboardMilkLabel} value={litres(dashboard.today.totalMilkLitres)} tone="blue" sub={`${dashboardRemainingLabel} ${litres(dashboard.today.remainingMilkLitres)}`} />
+                <StatCard icon={CircleDollarSign} label={dashboardIncomeLabel} value={currency(dashboard.today.totalIncome)} tone="green" sub={!dashboardUsesTodaySnapshot && dashboardSnapshotDate ? `Date ${dashboardSnapshotDate}` : undefined} />
+                <StatCard icon={CircleDollarSign} label={dashboardExpensesLabel} value={currency(dashboard.today.totalExpenses)} tone="orange" />
+                <StatCard icon={TrendingUp} label={dashboardProfitLabel} value={currency(dashboard.today.profit)} tone={dashboard.today.profit >= 0 ? 'green' : 'red'} sub={`Updated ${dashboard.lastUpdated || '—'}`} />
               </div>
 
               <div className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
@@ -1164,7 +1171,7 @@ function App() {
 
               <div className="grid gap-4 lg:grid-cols-3">
                 <InfoBox title="Monthly finance" lines={[`Income: ${currency(dashboard.monthly.income)}`, `Expenses: ${currency(dashboard.monthly.expenses)}`, `Profit: ${currency(dashboard.monthly.profit)}`]} />
-                <InfoBox title="Milk summary" lines={[`Produced this month: ${litres(dashboard.monthly.milk)}`, `Remaining today: ${litres(dashboard.today.remainingMilkLitres)}`, `Margin: ${dashboard.monthly.profitMargin}%`]} />
+                <InfoBox title="Milk summary" lines={[`Produced this month: ${litres(dashboard.monthly.milk)}`, `${dashboardUsesTodaySnapshot ? 'Remaining today' : 'Latest remaining'}: ${litres(dashboard.today.remainingMilkLitres)}`, `Margin: ${dashboard.monthly.profitMargin}%`]} />
                 <InfoBox title="Top buyer" lines={topBuyer ? [`${topBuyer.name || 'Unknown buyer'}`, `Milk sold: ${litres(topBuyer.value)}`, 'Good buyer to prioritize'] : ['No buyer sales yet']} />
               </div>
 
