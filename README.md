@@ -680,6 +680,13 @@ Potential future enhancements:
 
 ---
 
+## Screenshots
+
+![Dashboard](https://raw.githubusercontent.com/vimal-v-2006/dairy-farm-app/main/docs/dashboard.png)
+![Daily Entry](https://raw.githubusercontent.com/vimal-v-2006/dairy-farm-app/main/docs/daily-entry.png)
+
+---
+
 ## Troubleshooting
 
 ### Frontend does not open
@@ -725,8 +732,8 @@ If you want, you can also add screenshots under a section like:
 
 ```md
 ## Screenshots
-![Dashboard](./docs/dashboard.png)
-![Daily Entry](./docs/daily-entry.png)
+![Dashboard](https://raw.githubusercontent.com/vimal-v-2006/dairy-farm-app/main/docs/dashboard.png)
+![Daily Entry](https://raw.githubusercontent.com/vimal-v-2006/dairy-farm-app/main/docs/daily-entry.png)
 ```
 
 ---
