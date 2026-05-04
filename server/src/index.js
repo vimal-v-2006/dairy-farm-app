@@ -128,7 +128,8 @@ function mergeExpenseRows(expenses = []) {
 
   expenses.forEach((item, index) => {
     const amount = Number(item.amount || 0);
-    if (!amount) return;
+    const hasExplicitAmount = item.amount !== '' && item.amount !== null && item.amount !== undefined;
+    if (!hasExplicitAmount) return;
 
     if ((item.expense_type || 'common') === 'feed') {
       preservedFeedRows.push({

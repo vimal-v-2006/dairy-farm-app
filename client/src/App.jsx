@@ -322,9 +322,9 @@ function App() {
           food_name_snapshot: expense.food_name || '',
           unit_type_snapshot: expense.unit_type || '',
           rate_effective_from: expense.rate_effective_from || null,
-          quantity_kg: expense.quantity_kg || '',
-          unit_rate: expense.unit_rate || '',
-          amount: expense.amount || '',
+          quantity_kg: expense.quantity_kg ?? '',
+          unit_rate: expense.unit_rate ?? '',
+          amount: expense.amount ?? '',
           description: expense.description || '',
           payment_mode: expense.payment_mode || 'Cash'
         })))
@@ -377,9 +377,9 @@ function App() {
         expenses: mergeExpenseRows(dailyForm.expenses
           .filter((row) => {
             if ((row.expense_type || 'common') === 'feed') {
-              return row.cow_id && row.food_item_id && row.quantity_kg && row.amount;
+              return row.cow_id && row.food_item_id && Number(row.quantity_kg || 0) > 0 && row.amount !== '' && row.amount !== null && row.amount !== undefined;
             }
-            return row.category_id && row.amount;
+            return row.category_id && row.amount !== '' && row.amount !== null && row.amount !== undefined;
           })
           .map((row) => ({
             ...row,
@@ -568,11 +568,11 @@ function App() {
       }
 
       if (calfExpenseForm.expense_type === 'feed') {
-        if (!calfExpenseForm.food_item_id || !Number(calfExpenseForm.quantity_kg || 0) || !Number(calfExpenseForm.amount || 0)) {
+        if (!calfExpenseForm.food_item_id || !Number(calfExpenseForm.quantity_kg || 0) || calfExpenseForm.amount === '' || calfExpenseForm.amount === null || calfExpenseForm.amount === undefined) {
           notify('Please choose food and enter quantity for this calf expense');
           return;
         }
-      } else if (!calfExpenseForm.category_id || !Number(calfExpenseForm.amount || 0)) {
+      } else if (!calfExpenseForm.category_id || calfExpenseForm.amount === '' || calfExpenseForm.amount === null || calfExpenseForm.amount === undefined) {
         notify('Please choose a common category and enter amount');
         return;
       }
@@ -867,7 +867,9 @@ function App() {
             rate_effective_from: foodSnapshot?.rate_effective_from || null,
             quantity_kg: updated.quantity_kg || '',
             unit_rate: Number(foodSnapshot?.unit_rate || 0),
-            amount: updated.quantity_kg ? Number((Number(updated.quantity_kg || 0) * Number(foodSnapshot?.unit_rate || 0)).toFixed(2)) : ''
+            amount: updated.quantity_kg !== '' && updated.quantity_kg !== null && updated.quantity_kg !== undefined
+              ? Number((Number(updated.quantity_kg || 0) * Number(foodSnapshot?.unit_rate || 0)).toFixed(2))
+              : ''
           };
         } else {
           updated = {
@@ -898,7 +900,9 @@ function App() {
         if (Object.prototype.hasOwnProperty.call(patch, 'food_item_id') || Object.prototype.hasOwnProperty.call(patch, 'quantity_kg') || Object.prototype.hasOwnProperty.call(patch, 'unit_rate')) {
           const qty = Number(updated.quantity_kg || 0);
           const rate = Number(updated.unit_rate || 0);
-          updated.amount = qty && rate ? Number((qty * rate).toFixed(2)) : '';
+          updated.amount = updated.quantity_kg !== '' && updated.quantity_kg !== null && updated.quantity_kg !== undefined
+            ? Number((qty * rate).toFixed(2))
+            : '';
         }
       }
 
@@ -1482,12 +1486,12 @@ function App() {
                         <SelectInput label="Food item" value={calfExpenseForm.food_item_id} onChange={(value) => {
                           const food = state.foods.find((item) => String(item.id) === String(value));
                           const foodSnapshot = resolveFoodSnapshot(state.foods, value, calfExpenseForm.expense_date);
-                          setCalfExpenseForm((prev) => ({ ...prev, food_item_id: value, food_price_history_id: foodSnapshot?.food_price_history_id || null, food_name_snapshot: foodSnapshot?.food_name_snapshot || food?.name || '', unit_type_snapshot: foodSnapshot?.unit_type_snapshot || food?.unit_type || 'kg', rate_effective_from: foodSnapshot?.rate_effective_from || null, unit_rate: foodSnapshot?.unit_rate || '', amount: prev.quantity_kg ? Number((Number(prev.quantity_kg || 0) * Number(foodSnapshot?.unit_rate || 0)).toFixed(2)) : '' }));
+                          setCalfExpenseForm((prev) => ({ ...prev, food_item_id: value, food_price_history_id: foodSnapshot?.food_price_history_id || null, food_name_snapshot: foodSnapshot?.food_name_snapshot || food?.name || '', unit_type_snapshot: foodSnapshot?.unit_type_snapshot || food?.unit_type || 'kg', rate_effective_from: foodSnapshot?.rate_effective_from || null, unit_rate: foodSnapshot?.unit_rate || '', amount: prev.quantity_kg !== '' && prev.quantity_kg !== null && prev.quantity_kg !== undefined ? Number((Number(prev.quantity_kg || 0) * Number(foodSnapshot?.unit_rate || 0)).toFixed(2)) : '' }));
                         }} options={state.foods.map((food) => {
                           const foodSnapshot = resolveFoodSnapshot(state.foods, food.id, calfExpenseForm.expense_date);
                           return { label: `${food.name} (${currency(foodSnapshot?.unit_rate || 0)}/${foodSnapshot?.unit_type_snapshot === 'liter' ? 'L' : 'kg'})`, value: food.id };
                         })} />
-                        <Input label="Quantity" type="number" value={calfExpenseForm.quantity_kg} onChange={(value) => setCalfExpenseForm((prev) => ({ ...prev, quantity_kg: value, amount: Number(value || 0) && Number(prev.unit_rate || 0) ? Number((Number(value || 0) * Number(prev.unit_rate || 0)).toFixed(2)) : '' }))} />
+                        <Input label="Quantity" type="number" value={calfExpenseForm.quantity_kg} onChange={(value) => setCalfExpenseForm((prev) => ({ ...prev, quantity_kg: value, amount: value !== '' && value !== null && value !== undefined ? Number((Number(value || 0) * Number(prev.unit_rate || 0)).toFixed(2)) : '' }))} />
                         <Input label={`Rate / ${calfExpenseForm.unit_type_snapshot === 'liter' ? 'L' : 'kg'}`} type="number" value={calfExpenseForm.unit_rate} onChange={() => {}} disabled />
                         <Input label="Amount" type="number" value={calfExpenseForm.amount} onChange={() => {}} disabled />
                       </>
@@ -2472,7 +2476,7 @@ function hydrateDailyForm(prev, cows, buyers, categories, foods = []) {
     ...prev,
     cowEntries: prev.cowEntries?.length ? prev.cowEntries : (prev.entry_mode === 'cows' ? [createCowEntryRow(cows)] : []),
     milkSales: prev.milkSales?.length ? prev.milkSales : [createSaleRow(buyers)],
-    expenses: prev.expenses?.length ? prev.expenses : [createExpenseRow(categories, foods, cows, 'common', prev.entry_date)]
+    expenses: prev.expenses?.length ? prev.expenses : []
   };
 }
 
@@ -2565,7 +2569,7 @@ function mergeExpenseRows(rows = []) {
     const amount = Number(row.amount || 0);
     const expenseType = row.expense_type || 'common';
     if (expenseType === 'feed') {
-      if (!row?.cow_id || !row?.food_item_id || !Number(row.quantity_kg || 0) || !amount) return;
+      if (!row?.cow_id || !row?.food_item_id || !Number(row.quantity_kg || 0) || row.amount === '' || row.amount === null || row.amount === undefined) return;
       preservedFeedRows.push({
         ...row,
         expense_type: 'feed',
@@ -2580,7 +2584,7 @@ function mergeExpenseRows(rows = []) {
       return;
     }
 
-    if (!row?.category_id || !amount) return;
+    if (!row?.category_id || row.amount === '' || row.amount === null || row.amount === undefined) return;
 
     const paymentMode = (row.payment_mode || 'Cash').trim() || 'Cash';
     const description = (row.description || '').trim();
