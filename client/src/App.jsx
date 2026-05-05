@@ -22,7 +22,7 @@ const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'
 const paymentStatusOptions = ['Paid', 'Pending', 'Partial'];
 const paymentModeOptions = ['Cash', 'GPay', 'PhonePe', 'Paytm', 'Bank Transfer', 'Other Online', 'Other', 'Nothing'];
 const shiftOptions = ['Morning', 'Evening'];
-const remainingMilkOptions = ['Home Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
+const remainingMilkOptions = ['Home Use', 'Bonus Quantity', 'Meeting Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
 const cowStatusOptions = ['Lactating', 'Dry', 'Calf', 'Sold', 'Deceased'];
 const calfStatusOptions = ['Growing', 'Ready for lactation', 'Transferred'];
 const calfSourceOptions = ['Raised', 'Purchased young'];
@@ -1191,8 +1191,7 @@ function App() {
                           onClick={() => setDailyForm((prev) => ({
                             ...prev,
                             entry_mode: mode,
-                            total_milk_litres: mode === 'cows' ? String(dailyCowTotal || '') : prev.total_milk_litres,
-                            cowEntries: mode === 'cows' && !prev.cowEntries.length ? [createCowEntryRow(activeCows)] : prev.cowEntries
+                            total_milk_litres: mode === 'cows' ? String(dailyCowTotal || '') : prev.total_milk_litres
                           }))}
                           className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${dailyForm.entry_mode === mode ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'text-slate-700 dark:text-slate-200'}`}
                         >
@@ -2491,8 +2490,8 @@ function createEmptyDailyForm() {
 function hydrateDailyForm(prev, cows, buyers, categories, foods = []) {
   return {
     ...prev,
-    cowEntries: prev.cowEntries?.length ? prev.cowEntries : (prev.entry_mode === 'cows' ? [createCowEntryRow(cows)] : []),
-    milkSales: prev.milkSales?.length ? prev.milkSales : [createSaleRow(buyers)],
+    cowEntries: prev.cowEntries?.length ? prev.cowEntries : [],
+    milkSales: prev.milkSales?.length ? prev.milkSales : [],
     expenses: prev.expenses?.length ? prev.expenses : []
   };
 }
@@ -2943,9 +2942,9 @@ const Card = ({ children, className = '', ...props }) => <motion.div layout init
 const StatCard = ({ icon: Icon, label, value, tone = 'blue', sub }) => (
   <Card>
     <div className="flex items-start justify-between gap-3">
-      <div>
+      <div className="min-w-0 flex-1">
         <p className="text-sm font-medium opacity-65">{label}</p>
-        <h3 className="display-font mt-2 text-3xl font-black tracking-tight">{value}</h3>
+        <h3 className="display-font mt-2 truncate text-xl font-black tracking-tight md:text-2xl">{value}</h3>
         {sub && <p className="mt-2 text-xs opacity-60">{sub}</p>}
       </div>
       <div className={`rounded-2xl p-3 ${tone === 'green' ? 'bg-emerald-500/15 text-emerald-500' : tone === 'red' ? 'bg-red-500/15 text-red-500' : tone === 'orange' ? 'bg-amber-500/15 text-amber-500' : 'bg-sky-500/15 text-sky-500'}`}><Icon size={20} /></div>
@@ -3021,7 +3020,7 @@ function FactCard({ title, facts = [], footer = '' }) {
         {facts.map((fact) => (
           <div key={fact.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-center">
             <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-300">{fact.label}</div>
-            <div className={`mt-2 min-w-0 break-words text-[1.1rem] font-black leading-tight sm:text-[1.3rem] ${fact.tone === 'rose' ? 'text-rose-300' : fact.tone === 'amber' ? 'text-amber-300' : fact.tone === 'emerald' ? 'text-emerald-300' : 'text-sky-300'}`}>{fact.value}</div>
+            <div className={`mt-2 min-w-0 break-words text-sm font-black leading-tight sm:text-base ${fact.tone === 'rose' ? 'text-rose-300' : fact.tone === 'amber' ? 'text-amber-300' : fact.tone === 'emerald' ? 'text-emerald-300' : 'text-sky-300'}`}>{fact.value}</div>
           </div>
         ))}
       </div>

@@ -525,7 +525,7 @@ export async function exportDetailedDailyPdf({ fileName, title, subtitle, dailyD
     const normalized = String(rawNotes || '').trim();
     if (!normalized) return { generalNotes: '', remainingUsage: '', remainingNotes: '' };
     const [first = '', second = ''] = normalized.split(' | ');
-    const milkOptions = ['Home Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
+    const milkOptions = ['Home Use', 'Bonus Quantity', 'Meeting Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
     if (milkOptions.includes(first)) return { generalNotes: '', remainingUsage: first, remainingNotes: second };
     return { generalNotes: first, remainingUsage: '', remainingNotes: second };
   };
