@@ -1168,7 +1168,7 @@ export async function exportSingleCalfPdf(calf) {
   doc.setFontSize(12);
   doc.setTextColor(15, 23, 42);
   doc.setFont('helvetica', 'bold');
-  doc.text('Expense History', margin + 6, y);
+  doc.text('Expense History', margin, y);
   y += 6;
 
   const expenseGroups = groupRowsByDate(calf.expenses || [], 'expense_date');
@@ -1183,7 +1183,7 @@ export async function exportSingleCalfPdf(calf) {
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
-      doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+      doc.text(formatEntryDateLabel(group.entryDate), margin, y);
       y += 3;
       autoTable(doc, {
         startY: y,
