@@ -1299,14 +1299,14 @@ export async function exportAllCalvesPdf(calves) {
       doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.text('Expense History', margin + 6, y);
+      doc.text('Expense History', margin, y);
       y += 4;
       expenseGroups.forEach((group) => {
         ensureSpace(16);
         doc.setFontSize(7);
         doc.setTextColor(15, 23, 42);
         doc.setFont('helvetica', 'bold');
-        doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+        doc.text(formatEntryDateLabel(group.entryDate), margin, y);
         y += 2;
         autoTable(doc, {
           startY: y,
