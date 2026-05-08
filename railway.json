@@ -1,23 +1,11 @@
 {
+  "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "nixpacks",
-    "nixpacksConfig": {
-      "buildCommand": "apt-get update && apt-get install -y python3 make g++ && cd server && npm install && npm run build-client",
-      "providers": {
-        "nodejs": {
-          "version": "20"
-        }
-      }
-    }
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "server/Dockerfile"
   },
   "deploy": {
-    "restartPolicyType": "on_failure",
-    "restartPolicyMaxRetries": 10
-  },
-  "volumes": [
-    {
-      "mountPath": "/data",
-      "directory": "."
-    }
-  ]
+    "startCommand": "node src/index.js",
+    "restartPolicyType": "on_failure"
+  }
 }
