@@ -996,6 +996,7 @@ export async function exportAllCowsPdf(cows) {
     // Milk history mini table
     const milkGroups = groupRowsByDate(cow.history || []);
     if (milkGroups.length > 0) {
+      y += 3;
       ensureSpace(18);
       doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
