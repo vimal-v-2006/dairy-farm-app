@@ -997,7 +997,7 @@ export async function exportAllCowsPdf(cows) {
     const milkGroups = groupRowsByDate(cow.history || []);
     if (milkGroups.length > 0) {
       ensureSpace(18);
-      doc.setFontSize(8);
+      doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
       doc.text('Milk History', margin + 6, y);
@@ -1027,7 +1027,7 @@ export async function exportAllCowsPdf(cows) {
     const feedGroups = groupRowsByDate(cow.feedHistory || []);
     if (feedGroups.length > 0) {
       ensureSpace(18);
-      doc.setFontSize(8);
+      doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
       doc.text('Feed History', margin + 6, y);
