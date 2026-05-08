@@ -1,7 +1,14 @@
 {
   "build": {
-    "builder": "docker",
-    "dockerfilePath": "Dockerfile"
+    "builder": "nixpacks",
+    "nixpacksConfig": {
+      "buildCommand": "apt-get update && apt-get install -y python3 make g++ && cd server && npm install && npm run build-client",
+      "providers": {
+        "nodejs": {
+          "version": "20"
+        }
+      }
+    }
   },
   "deploy": {
     "restartPolicyType": "on_failure",
