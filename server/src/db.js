@@ -2,9 +2,9 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const defaultDbPath = path.join(__dirname, '..', 'data', 'dairy-farm.db');
-const configuredDbPath = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : defaultDbPath;
-fs.mkdirSync(path.dirname(configuredDbPath), { recursive: true });
+const dbDir = process.env.DB_DIR || path.join(__dirname, '..', 'data');
+fs.mkdirSync(dbDir, { recursive: true });
+const configuredDbPath = process.env.DB_PATH || path.join(dbDir, 'dairy-farm.db');
 
 const db = new Database(configuredDbPath);
 db.pragma('journal_mode = WAL');

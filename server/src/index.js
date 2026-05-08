@@ -16,20 +16,28 @@ initDb();
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'milk-business-pro-reset-2026-05-01-v2';
+const isProduction = process.env.NODE_ENV === 'production';
+const clientUrl = process.env.CLIENT_URL || '';
 const uploadsDir = process.env.UPLOADS_DIR ? path.resolve(process.env.UPLOADS_DIR) : path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 const upload = multer({ dest: uploadsDir });
 
-app.use(cors());
+const allowedOrigins = isProduction
+  ? [clientUrl, 'https://*.vercel.app', 'https://*.railway.app'].filter(Boolean)
+  : ['http://localhost:5173', 'http://localhost:5174'];
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadsDir));
 
-const clientDistPath = path.join(__dirname, '..', '..', 'client', 'dist');
+const clientDistPath = process.env.SERVE_CLIENT_DIR
+  ? path.resolve(process.env.SERVE_CLIENT_DIR)
+  : path.join(__dirname, '..', 'public');
 const hasClientBuild = fs.existsSync(path.join(clientDistPath, 'index.html'));
 if (hasClientBuild) {
   app.use(express.static(clientDistPath));
+  console.log(`Serving client build from: ${clientDistPath}`);
 }
 
 const ok = (res, data) => res.json({ success: true, ...data });
@@ -815,6 +823,8 @@ app.listen(PORT, () => {
   console.log(`Dairy Farm API running on http://localhost:${PORT}`);
   console.log(`SQLite DB: ${process.env.DB_PATH || path.join(__dirname, '..', 'data', 'dairy-farm.db')}`);
   console.log(`Uploads dir: ${uploadsDir}`);
+  console.log(`NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`CLIENT_URL: ${clientUrl || '(not set - using CORS defaults)'}`);
   if (hasClientBuild) {
     console.log(`Serving client build from: ${clientDistPath}`);
   }

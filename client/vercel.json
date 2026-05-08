@@ -1,0 +1,18 @@
+{
+  "buildCommand": "cd ../server && npm run build-client",
+  "outputDirectory": "../server/public",
+  "framework": "static",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "${VITE_API_URL}/api/$1" },
+    { "source": "/uploads/(.*)", "destination": "${VITE_API_URL}/uploads/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "${VITE_API_URL}" }
+      ]
+    }
+  ]
+}
