@@ -5,7 +5,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, P
 import { Activity, Baby, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, LogOut, Menu, Milk, NotebookPen, Pencil, Plus, Printer, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, Users, Wallet, X } from 'lucide-react';
 import { api, storage } from './api/client';
 import { useAuth } from './context/AuthContext';
-import { currency, exportStyledPdf, exportBusinessRegisterExcel, exportDetailedDailyPdf, litres, today, exportSingleCowPdf, exportAllCowsPdf } from './lib/utils';
+import { currency, exportBusinessRegisterExcel, exportDetailedDailyPdf, litres, today, exportSingleCowPdf, exportAllCowsPdf, exportSingleCalfPdf, exportAllCalvesPdf } from './lib/utils';
 
 const nav = [
   ['dashboard', 'Dashboard', LayoutDashboard],
@@ -175,6 +175,7 @@ function App() {
     if (!calfSummaries.length) return null;
     return calfSummaries.find((calf) => String(calf.id) === String(selectedCalfRecordId)) || calfSummaries[0];
   }, [calfSummaries, selectedCalfRecordId]);
+  const selectedCalfExpenseGroups = useMemo(() => groupRowsByDate(selectedCalfRecord?.expenses || [], 'expense_date'), [selectedCalfRecord]);
   const selectedCowRecord = useMemo(() => {
     if (!cowRecordSummaries.length) return null;
     return cowRecordSummaries.find((cow) => String(cow.id) === String(selectedCowRecordId)) || cowRecordSummaries[0];
@@ -618,72 +619,11 @@ function App() {
   }
 
   function exportCalfRecordPdf(calf) {
-    exportStyledPdf({
-      fileName: `${calf.name}-calf-rearing-record`,
-      title: `${calf.name} calf rearing record`,
-      subtitle: `Separate calf section record • ${calf.status} • ${calf.sourceLabel}`,
-      summaryRows: [
-        { metric: 'Calf name', value: calf.name },
-        { metric: 'Breed', value: calf.breed || '—' },
-        { metric: 'Birth / start date', value: calf.birth_date || '—' },
-        { metric: 'Expected lactation date', value: calf.expected_lactation_date || '—' },
-        { metric: 'Base price', value: currency(calf.purchase_price || 0) },
-        { metric: 'Paid before transfer', value: currency(calf.paid_amount || 0) },
-        { metric: 'Previous rearing expense', value: currency(calf.totalExpense || 0) },
-        { metric: 'Food budget', value: currency(calf.foodExpense || 0) },
-        { metric: 'Other expense', value: currency(calf.otherExpense || 0) },
-        { metric: 'Transferred', value: calf.transferred_to_cow_id ? `Yes • ${calf.transferred_at || ''}` : 'No' }
-      ],
-      expenseRows: calf.expenses.map((expense) => ({
-        date: expense.expense_date,
-        type: expense.expense_type === 'feed' ? 'Food' : 'Common',
-        expense: expense.food_name || expense.category_name || '—',
-        quantity_kg: expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—',
-        shifts: expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—',
-        amount: currency(expense.amount || 0),
-        description: expense.description || '—',
-        payment_mode: expense.expense_type === 'feed' ? '—' : (expense.payment_mode || 'Cash')
-      }))
-    });
+    exportSingleCalfPdf(calf);
   }
 
   function exportAllCalfRecordsPdf() {
-    exportStyledPdf({
-      fileName: 'all-calf-rearing-records',
-      title: 'Calf rearing records',
-      subtitle: 'Complete separate calf rearing section export',
-      summaryRows: [
-        { metric: 'Total calves', value: calfSummaries.length },
-        { metric: 'Transferred calves', value: calfSummaries.filter((calf) => calf.transferred_to_cow_id).length },
-        { metric: 'Growing calves', value: calfSummaries.filter((calf) => !calf.transferred_to_cow_id).length },
-        { metric: 'Total calf rearing expense', value: currency(calfSummaries.reduce((sum, calf) => sum + Number(calf.totalExpense || 0), 0)) }
-      ],
-      dailyRows: calfSummaries.map((calf) => ({
-        calf_name: calf.name,
-        breed: calf.breed || '—',
-        status: calf.status,
-        source: calf.sourceLabel,
-        birth_start_date: calf.birth_date || '—',
-        expected_lactation_date: calf.expected_lactation_date || '—',
-        base_price: currency(calf.purchase_price || 0),
-        paid_before_transfer: currency(calf.paid_amount || 0),
-        previous_rearing_expense: currency(calf.totalExpense || 0),
-        food_budget: currency(calf.foodExpense || 0),
-        other_expense: currency(calf.otherExpense || 0),
-        transferred: calf.transferred_to_cow_id ? `Yes • ${calf.transferred_at || ''}` : 'No'
-      })),
-      expenseRows: calfSummaries.flatMap((calf) => calf.expenses.map((expense) => ({
-        calf_name: calf.name,
-        date: expense.expense_date,
-        type: expense.expense_type === 'feed' ? 'Food' : 'Common',
-        expense: expense.food_name || expense.category_name || '—',
-        quantity_kg: expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—',
-        shifts: expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—',
-        amount: currency(expense.amount || 0),
-        description: expense.description || '—',
-        payment_mode: expense.expense_type === 'feed' ? '—' : (expense.payment_mode || 'Cash')
-      })))
-    });
+    exportAllCalvesPdf(calfSummaries);
   }
 
   async function deleteCow(cow) {
@@ -1576,36 +1516,43 @@ function App() {
                           <RecordStat title="Transferred" value={selectedCalfRecord.transferred_to_cow_id ? `Yes • ${selectedCalfRecord.transferred_at || ''}` : 'No'} tone={selectedCalfRecord.transferred_to_cow_id ? 'emerald' : 'sky'} />
                         </div>
 
-                        <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-slate-100/70 dark:bg-slate-900/50">
-                              <tr>
-                                <th className="px-3 py-2 text-left">Date</th>
-                                <th className="px-3 py-2 text-left">Type</th>
-                                <th className="px-3 py-2 text-left">Expense</th>
-                                <th className="px-3 py-2 text-left">Qty</th>
-                                <th className="px-3 py-2 text-left">Shifts</th>
-                                <th className="px-3 py-2 text-left">Amount</th>
-                                <th className="px-3 py-2 text-left">Description</th>
-                                <th className="px-3 py-2 text-left">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {selectedCalfRecord.expenses.length ? selectedCalfRecord.expenses.map((expense) => (
-                                <tr key={expense.id} className="border-t border-white/10">
-                                  <td className="px-3 py-2">{expense.expense_date}</td>
-                                  <td className="px-3 py-2">{expense.expense_type === 'feed' ? 'Food' : 'Common'}</td>
-                                  <td className="px-3 py-2">{expense.food_name || expense.category_name || '—'}</td>
-                                  <td className="px-3 py-2">{expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—'}</td>
-                                  <td className="px-3 py-2">{expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—'}</td>
-                                  <td className="px-3 py-2 font-semibold">{currency(expense.amount || 0)}</td>
-                                  <td className="px-3 py-2">{expense.description || '—'}</td>
-                                  <td className="px-3 py-2"><button onClick={() => deleteCalfExpense(expense.id)} className="text-red-500">Delete</button></td>
-                                </tr>
-                              )) : <tr><td className="px-3 py-3 opacity-60" colSpan="8">No calf expenses yet.</td></tr>}
-                            </tbody>
-                          </table>
-                        </div>
+                        {selectedCalfExpenseGroups.length ? (
+                          <div className="space-y-3">
+                            {selectedCalfExpenseGroups.map((group) => (
+                              <div key={group.entryDate} className="overflow-hidden rounded-2xl border border-white/10 bg-white/50 dark:bg-slate-900/30">
+                                <div className="border-b border-white/10 bg-slate-100/70 px-4 py-2 text-sm font-black text-slate-700 dark:bg-slate-900/50 dark:text-slate-200">{formatDisplayDate(group.entryDate)}</div>
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full text-sm">
+                                    <thead className="bg-slate-100/70 dark:bg-slate-900/50">
+                                      <tr>
+                                        <th className="px-3 py-2 text-left">Type</th>
+                                        <th className="px-3 py-2 text-left">Expense</th>
+                                        <th className="px-3 py-2 text-left">Qty</th>
+                                        <th className="px-3 py-2 text-left">Shifts</th>
+                                        <th className="px-3 py-2 text-left">Amount</th>
+                                        <th className="px-3 py-2 text-left">Description</th>
+                                        <th className="px-3 py-2 text-left">Action</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {group.rows.map((expense) => (
+                                        <tr key={expense.id} className="border-t border-white/10">
+                                          <td className="px-3 py-2">{expense.expense_type === 'feed' ? 'Food' : 'Common'}</td>
+                                          <td className="px-3 py-2">{expense.food_name || expense.category_name || '—'}</td>
+                                          <td className="px-3 py-2">{expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—'}</td>
+                                          <td className="px-3 py-2">{expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—'}</td>
+                                          <td className="px-3 py-2 font-semibold">{currency(expense.amount || 0)}</td>
+                                          <td className="px-3 py-2">{expense.description || '—'}</td>
+                                          <td className="px-3 py-2"><button onClick={() => deleteCalfExpense(expense.id)} className="text-red-500">Delete</button></td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <div className="rounded-2xl border border-white/10 px-3 py-3 text-sm opacity-60">No calf expenses yet.</div>}
                       </div>
                     )}
                   </div>
@@ -2378,7 +2325,7 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
 function buildCalfSummaries(calves = []) {
   return calves.map((item) => {
     const calf = item.calf || item;
-    const expenses = item.expenses || [];
+    const expenses = [...(item.expenses || [])].sort((a, b) => String(b.expense_date || '').localeCompare(String(a.expense_date || '')));
     const totalExpense = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const foodExpense = expenses.filter((expense) => expense.expense_type === 'feed').reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const otherExpense = totalExpense - foodExpense;
@@ -2540,10 +2487,10 @@ function formatDisplayDate(value) {
   return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yyyy') : value || '—';
 }
 
-function groupRowsByDate(rows = []) {
+function groupRowsByDate(rows = [], dateKey = 'entryDate') {
   const groups = new Map();
   rows.forEach((row) => {
-    const entryDate = row.entryDate || 'Unknown date';
+    const entryDate = row?.[dateKey] || 'Unknown date';
     if (!groups.has(entryDate)) groups.set(entryDate, []);
     groups.get(entryDate).push(row);
   });

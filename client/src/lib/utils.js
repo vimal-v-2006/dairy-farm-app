@@ -18,10 +18,10 @@ const formatEntryDateLabel = (value) => {
   return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yyyy') : value || '—';
 };
 
-const groupRowsByDate = (rows = []) => {
+const groupRowsByDate = (rows = [], dateKey = 'entryDate') => {
   const groups = new Map();
   rows.forEach((row) => {
-    const entryDate = row.entryDate || 'Unknown date';
+    const entryDate = row?.[dateKey] || 'Unknown date';
     if (!groups.has(entryDate)) groups.set(entryDate, []);
     groups.get(entryDate).push(row);
   });
@@ -1075,4 +1075,267 @@ export async function exportAllCowsPdf(cows) {
   }
 
   doc.save(`all-cow-records-${timestamp}.pdf`);
+}
+
+export async function exportSingleCalfPdf(calf) {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const timestamp = format(new Date(), 'yyyy-MM-dd_HHmm');
+
+  doc.setFillColor(15, 23, 42);
+  doc.roundedRect(margin, margin, pageWidth - margin * 2, 26, 5, 5, 'F');
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.text(calf.name || 'Calf Record', margin + 6, margin + 12);
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${calf.status || 'Growing'} • ${calf.sourceLabel || 'Raised'}`, margin + 6, margin + 21);
+
+  let y = margin + 32;
+  const ensureSpace = (needed = 18) => {
+    if (y + needed <= pageHeight - margin) return;
+    doc.addPage();
+    y = margin;
+  };
+
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(margin, y, pageWidth - margin * 2, 32, 4, 4, 'F');
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margin, y, pageWidth - margin * 2, 32, 4, 4, 'S');
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Calf Details', margin + 6, y + 7);
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.setFont('helvetica', 'normal');
+  const details = [
+    ['Breed', calf.breed || 'Not recorded'],
+    ['Birth / start', calf.birth_date || '—'],
+    ['Expected lactation', calf.expected_lactation_date || '—'],
+    ['Base price', `Rs. ${Number(calf.purchase_price || 0).toFixed(2)}`],
+    ['Paid before transfer', `Rs. ${Number(calf.paid_amount || 0).toFixed(2)}`],
+    ['Transferred', calf.transferred_to_cow_id ? `Yes • ${calf.transferred_at || ''}` : 'No']
+  ];
+  details.forEach(([label, value], i) => {
+    const lineY = y + 14 + i * 3.2;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${label}:`, margin + 6, lineY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    const textWidth = doc.getTextWidth(String(label) + ': ');
+    doc.text(String(value), margin + 6 + textWidth, lineY, { maxWidth: pageWidth - margin * 2 - textWidth - 6 });
+  });
+  y += 38;
+
+  const stats = [
+    { label: 'Total Expense', value: `Rs. ${Number(calf.totalExpense || 0).toFixed(2)}` },
+    { label: 'Food Budget', value: `Rs. ${Number(calf.foodExpense || 0).toFixed(2)}` },
+    { label: 'Other Expense', value: `Rs. ${Number(calf.otherExpense || 0).toFixed(2)}` }
+  ];
+  const boxWidth = (pageWidth - margin * 2 - (stats.length - 1) * 4) / stats.length;
+  stats.forEach((stat, i) => {
+    const x = margin + i * (boxWidth + 4);
+    doc.setFillColor(240, 253, 244);
+    doc.roundedRect(x, y, boxWidth, 14, 3, 3, 'F');
+    doc.setFontSize(6);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'bold');
+    doc.text(stat.label, x + 3, y + 6);
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(stat.value, x + 3, y + 12);
+  });
+  y += 20;
+
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Expense History', margin + 6, y);
+  y += 6;
+
+  const expenseGroups = groupRowsByDate(calf.expenses || [], 'expense_date');
+  if (!expenseGroups.length) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('No calf expenses recorded yet.', margin + 6, y);
+  } else {
+    expenseGroups.forEach((group) => {
+      ensureSpace(18);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+      y += 3;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [['Type', 'Expense', 'Qty', 'Shifts', 'Amount', 'Description']],
+        body: group.rows.map((expense) => [
+          expense.expense_type === 'feed' ? 'Food' : 'Common',
+          expense.food_name || expense.category_name || '—',
+          expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—',
+          expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—',
+          Number(expense.amount || 0).toFixed(2),
+          expense.description || '—'
+        ]),
+        styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
+        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        theme: 'striped'
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    });
+  }
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Dairy Farm Management • ${calf.name} • Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
+  }
+
+  doc.save(`${(calf.name || 'calf-record').toLowerCase().replace(/\s+/g, '-')}-record-${timestamp}.pdf`);
+}
+
+export async function exportAllCalvesPdf(calves) {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const timestamp = format(new Date(), 'yyyy-MM-dd_HHmm');
+
+  doc.setFillColor(15, 23, 42);
+  doc.roundedRect(margin, margin, pageWidth - margin * 2, 24, 5, 5, 'F');
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.text('All Calf Records', margin + 6, margin + 12);
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Total: ${calves.length} calves • Generated ${new Date().toLocaleString()}`, margin + 6, margin + 20);
+
+  let y = margin + 30;
+  const ensureSpace = (needed = 18) => {
+    if (y + needed <= pageHeight - margin) return;
+    doc.addPage();
+    y = margin;
+  };
+
+  const totalExpense = calves.reduce((sum, calf) => sum + Number(calf.totalExpense || 0), 0);
+  const totalFood = calves.reduce((sum, calf) => sum + Number(calf.foodExpense || 0), 0);
+  const totalOther = calves.reduce((sum, calf) => sum + Number(calf.otherExpense || 0), 0);
+  const summaryStats = [
+    { label: 'Total Calves', value: String(calves.length) },
+    { label: 'Total Expense', value: `Rs. ${totalExpense.toFixed(2)}` },
+    { label: 'Food Budget', value: `Rs. ${totalFood.toFixed(2)}` },
+    { label: 'Other Expense', value: `Rs. ${totalOther.toFixed(2)}` }
+  ];
+  const boxWidth = (pageWidth - margin * 2 - (summaryStats.length - 1) * 4) / summaryStats.length;
+  summaryStats.forEach((stat, i) => {
+    const x = margin + i * (boxWidth + 4);
+    doc.setFillColor(240, 253, 244);
+    doc.roundedRect(x, y, boxWidth, 14, 3, 3, 'F');
+    doc.setFontSize(6);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'bold');
+    doc.text(stat.label, x + 3, y + 6);
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(stat.value, x + 3, y + 12);
+  });
+  y += 20;
+
+  calves.forEach((calf, index) => {
+    if (y + 40 > pageHeight - margin) {
+      doc.addPage();
+      y = margin;
+    }
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 4, 4, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 4, 4, 'S');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${calf.name}`, margin + 6, y + 7);
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'normal');
+    doc.text([calf.breed || '', calf.status || 'Growing', calf.sourceLabel || 'Raised'].filter(Boolean).join(' • '), margin + 6, y + 13);
+
+    doc.setFontSize(7);
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Expense: Rs. ${Number(calf.totalExpense || 0).toFixed(2)}  |  Food: Rs. ${Number(calf.foodExpense || 0).toFixed(2)}  |  Other: Rs. ${Number(calf.otherExpense || 0).toFixed(2)}  |  Birth: ${calf.birth_date || '—'}`, margin + 6, y + 21, { maxWidth: pageWidth - margin * 2 - 12 });
+    y += 26;
+
+    const expenseGroups = groupRowsByDate(calf.expenses || [], 'expense_date');
+    if (expenseGroups.length > 0) {
+      ensureSpace(18);
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Expense History', margin + 6, y);
+      y += 4;
+      expenseGroups.forEach((group) => {
+        ensureSpace(16);
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+        y += 2;
+        autoTable(doc, {
+          startY: y,
+          margin: { left: margin, right: margin },
+          head: [['Type', 'Expense', 'Qty', 'Shifts', 'Amount', 'Description']],
+          body: group.rows.map((expense) => [
+            expense.expense_type === 'feed' ? 'Food' : 'Common',
+            expense.food_name || expense.category_name || '—',
+            expense.quantity_kg ? `${Number(expense.quantity_kg).toFixed(2)} ${expense.unit_type === 'liter' ? 'L' : 'kg'}` : '—',
+            expense.expense_type === 'feed' ? (expense.entry_shift || 'Morning') : '—',
+            Number(expense.amount || 0).toFixed(2),
+            expense.description || '—'
+          ]),
+          styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
+          headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          theme: 'striped'
+        });
+        y = doc.lastAutoTable.finalY + 4;
+      });
+    } else {
+      y += 4;
+    }
+
+    if (index < calves.length - 1) {
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 6;
+    }
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Dairy Farm Management • All Calf Records • Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
+  }
+
+  doc.save(`all-calf-records-${timestamp}.pdf`);
 }
