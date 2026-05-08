@@ -24,6 +24,12 @@ app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+const clientDistPath = path.join(__dirname, '..', '..', 'client', 'dist');
+const hasClientBuild = fs.existsSync(path.join(clientDistPath, 'index.html'));
+if (hasClientBuild) {
+  app.use(express.static(clientDistPath));
+}
+
 const ok = (res, data) => res.json({ success: true, ...data });
 const fail = (res, status, message) => res.status(status).json({ success: false, message });
 
@@ -797,6 +803,16 @@ app.use((err, req, res, next) => {
   fail(res, 500, 'Server error');
 });
 
+if (hasClientBuild) {
+  app.get(/^(?!\/api|\/uploads).*/, (req, res) => {
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`Dairy Farm API running on http://localhost:${PORT}`);
+  console.log(`SQLite DB: ${process.env.DB_PATH || path.join(__dirname, '..', 'data', 'dairy-farm.db')}`);
+  if (hasClientBuild) {
+    console.log(`Serving client build from: ${clientDistPath}`);
+  }
 });
