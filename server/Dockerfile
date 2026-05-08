@@ -14,9 +14,8 @@ ENV DB_DIR=/data
 ENV UPLOADS_DIR=/data/uploads
 ENV NODE_ENV=production
 
-RUN mkdir -p /data /data/uploads && \
-    cp server/data/dairy-farm.db /data/dairy-farm.db 2>/dev/null || true
+RUN mkdir -p /data /data/uploads
 
 EXPOSE 4000
 
-CMD ["bash", "-c", "mkdir -p /data /data/uploads && cp server/data/dairy-farm.db /data/dairy-farm.db 2>/dev/null || true && node src/index.js"]
+CMD ["bash", "-c", "cp server/data/dairy-farm.db /data/ && cp server/data/dairy-farm.db-shm /data/ 2>/dev/null; cp server/data/dairy-farm.db-wal /data/ 2>/dev/null; mkdir -p /data/uploads && node src/index.js"]
