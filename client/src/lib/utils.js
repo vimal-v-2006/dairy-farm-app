@@ -13,6 +13,21 @@ export const currency = (value) => `₹${Number(value || 0).toLocaleString('en-I
 export const litres = (value) => `${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} L`;
 export const today = () => format(new Date(), 'yyyy-MM-dd');
 
+const formatEntryDateLabel = (value) => {
+  const parsed = value ? new Date(`${value}T00:00:00`) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yyyy') : value || '—';
+};
+
+const groupRowsByDate = (rows = []) => {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const entryDate = row.entryDate || 'Unknown date';
+    if (!groups.has(entryDate)) groups.set(entryDate, []);
+    groups.get(entryDate).push(row);
+  });
+  return Array.from(groups.entries()).map(([entryDate, groupedRows]) => ({ entryDate, rows: groupedRows }));
+};
+
 export async function exportStyledExcel(name, { title, summaryRows = [], dailyRows = [], buyerRows = [], expenseRows = [], referenceRows = [] }) {
   const ExcelJS = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
@@ -727,6 +742,12 @@ export async function exportSingleCowPdf(cow) {
   doc.text(cowSubtitle, margin + 6, margin + 21);
 
   let y = margin + 32;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const ensureSpace = (needed = 18) => {
+    if (y + needed <= pageHeight - margin) return;
+    doc.addPage();
+    y = margin;
+  };
 
   // Cow details
   doc.setFillColor(248, 250, 252);
@@ -790,49 +811,82 @@ export async function exportSingleCowPdf(cow) {
   doc.setTextColor(15, 23, 42);
   doc.setFont('helvetica', 'bold');
   doc.text('Milk History', margin + 6, y);
-  y += 4;
+  y += 6;
 
-  autoTable(doc, {
-    startY: y,
-    margin: { left: margin, right: margin },
-    head: [['Date', 'Milk (L)', 'Shifts', 'Status', 'Notes']],
-    body: (cow.history || []).map((row) => [
-      row.entryDate,
-      `${Number(row.totalLitres || 0).toFixed(2)}`,
-      row.entryShift || 'Morning',
-      row.status || 'Recorded',
-      row.notes || '—'
-    ]),
-    styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
-    headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    theme: 'striped'
-  });
-
-  const afterMilkTable = doc.lastAutoTable.finalY + 10;
+  const milkGroups = groupRowsByDate(cow.history || []);
+  if (!milkGroups.length) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('No milk history recorded yet.', margin + 6, y);
+    y += 8;
+  } else {
+    milkGroups.forEach((group) => {
+      ensureSpace(18);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+      y += 3;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [['Milk (L)', 'Shifts', 'Status', 'Notes']],
+        body: group.rows.map((row) => [
+          `${Number(row.totalLitres || 0).toFixed(2)}`,
+          row.entryShift || 'Morning',
+          row.status || 'Recorded',
+          row.notes || '—'
+        ]),
+        styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
+        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        theme: 'striped'
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    });
+  }
 
   // Feed history table
+  ensureSpace(16);
   doc.setFontSize(12);
   doc.setTextColor(15, 23, 42);
   doc.setFont('helvetica', 'bold');
-  doc.text('Feed History', margin + 6, afterMilkTable);
+  doc.text('Feed History', margin + 6, y);
+  y += 6;
 
-  autoTable(doc, {
-    startY: afterMilkTable + 4,
-    margin: { left: margin, right: margin },
-    head: [['Date', 'Food', 'Quantity', 'Shifts', 'Amount (Rs.)']],
-    body: (cow.feedHistory || []).map((row) => [
-      row.entryDate,
-      row.foodName || '—',
-      `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`,
-      row.entryShift || 'Morning',
-      Number(row.amount || 0).toFixed(2)
-    ]),
-    styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
-    headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    theme: 'striped'
-  });
+  const feedGroups = groupRowsByDate(cow.feedHistory || []);
+  if (!feedGroups.length) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('No feed history recorded yet.', margin + 6, y);
+  } else {
+    feedGroups.forEach((group) => {
+      ensureSpace(18);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+      y += 3;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [['Food', 'Quantity', 'Shifts', 'Amount (Rs.)']],
+        body: group.rows.map((row) => [
+          row.foodName || '—',
+          `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`,
+          row.entryShift || 'Morning',
+          Number(row.amount || 0).toFixed(2)
+        ]),
+        styles: { fontSize: 7, cellPadding: 3, font: 'helvetica' },
+        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        theme: 'striped'
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    });
+  }
 
   // Footer
   const pageCount = doc.internal.getNumberOfPages();
@@ -900,9 +954,15 @@ export async function exportAllCowsPdf(cows) {
   y += 20;
 
   // Individual cow cards with their full data
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const ensureSpace = (needed = 18) => {
+    if (y + needed <= pageHeight - margin) return;
+    doc.addPage();
+    y = margin;
+  };
+
   cows.forEach((cow, index) => {
     // Check page space
-    const pageHeight = doc.internal.pageSize.getHeight();
     if (y + 60 > pageHeight - margin) {
       doc.addPage();
       y = margin;
@@ -934,51 +994,63 @@ export async function exportAllCowsPdf(cows) {
     y += 24;
 
     // Milk history mini table
-    if ((cow.history || []).length > 0) {
-      if (y + 30 > pageHeight - margin) {
-        doc.addPage();
-        y = margin;
-      }
+    const milkGroups = groupRowsByDate(cow.history || []);
+    if (milkGroups.length > 0) {
+      ensureSpace(18);
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
       doc.text('Milk History', margin + 6, y);
-      y += 3;
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        head: [['Date', 'Milk (L)', 'Shifts', 'Status', 'Notes']],
-        body: cow.history.map((row) => [row.entryDate, Number(row.totalLitres || 0).toFixed(2), row.entryShift || 'Morning', row.status || 'Recorded', row.notes || '—']),
-        styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
-        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        theme: 'striped'
+      y += 4;
+      milkGroups.forEach((group) => {
+        ensureSpace(16);
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+        y += 2;
+        autoTable(doc, {
+          startY: y,
+          margin: { left: margin, right: margin },
+          head: [['Milk (L)', 'Shifts', 'Status', 'Notes']],
+          body: group.rows.map((row) => [Number(row.totalLitres || 0).toFixed(2), row.entryShift || 'Morning', row.status || 'Recorded', row.notes || '—']),
+          styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
+          headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          theme: 'striped'
+        });
+        y = doc.lastAutoTable.finalY + 4;
       });
-      y = doc.lastAutoTable.finalY + 4;
     }
 
     // Feed history mini table
-    if ((cow.feedHistory || []).length > 0) {
-      if (y + 30 > pageHeight - margin) {
-        doc.addPage();
-        y = margin;
-      }
+    const feedGroups = groupRowsByDate(cow.feedHistory || []);
+    if (feedGroups.length > 0) {
+      ensureSpace(18);
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
       doc.text('Feed History', margin + 6, y);
-      y += 3;
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        head: [['Date', 'Food', 'Qty', 'Shifts', 'Amount']],
-        body: cow.feedHistory.map((row) => [row.entryDate, row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', Number(row.amount || 0).toFixed(2)]),
-        styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
-        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        theme: 'striped'
+      y += 4;
+      feedGroups.forEach((group) => {
+        ensureSpace(16);
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formatEntryDateLabel(group.entryDate), margin + 6, y);
+        y += 2;
+        autoTable(doc, {
+          startY: y,
+          margin: { left: margin, right: margin },
+          head: [['Food', 'Qty', 'Shifts', 'Amount']],
+          body: group.rows.map((row) => [row.foodName || '—', `${Number(row.quantityKg || 0).toFixed(2)} ${row.unitType === 'liter' ? 'L' : 'kg'}`, row.entryShift || 'Morning', Number(row.amount || 0).toFixed(2)]),
+          styles: { fontSize: 6, cellPadding: 2, font: 'helvetica' },
+          headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          theme: 'striped'
+        });
+        y = doc.lastAutoTable.finalY + 4;
       });
-      y = doc.lastAutoTable.finalY + 8;
     } else {
       y += 4;
     }

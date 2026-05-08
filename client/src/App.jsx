@@ -179,6 +179,8 @@ function App() {
     if (!cowRecordSummaries.length) return null;
     return cowRecordSummaries.find((cow) => String(cow.id) === String(selectedCowRecordId)) || cowRecordSummaries[0];
   }, [cowRecordSummaries, selectedCowRecordId]);
+  const selectedCowMilkGroups = useMemo(() => groupRowsByDate(selectedCowRecord?.history || []), [selectedCowRecord]);
+  const selectedCowFeedGroups = useMemo(() => groupRowsByDate(selectedCowRecord?.feedHistory || []), [selectedCowRecord]);
   const investmentSummaries = useMemo(() => buildInvestmentSummaries(state.investments, state.cows, calfSummaries), [state.investments, state.cows, calfSummaries]);
   const activeInvestments = useMemo(() => investmentSummaries.filter((item) => item.status !== 'finished'), [investmentSummaries]);
   const finishedInvestments = useMemo(() => investmentSummaries.filter((item) => item.status === 'finished'), [investmentSummaries]);
@@ -1698,60 +1700,74 @@ function App() {
                           <div className="mt-5 grid gap-4 xl:grid-cols-2">
                             <div className="rounded-3xl border border-white/30 bg-white/72 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-slate-950/45">
                               <div className="mb-3 text-sm font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">Milk history by date</div>
-                              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-50/95 dark:bg-slate-900/95">
-                                <table className="min-w-full text-sm text-slate-800 dark:text-slate-100">
-                                  <thead className="bg-slate-800 text-white dark:bg-slate-900">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left">Date</th>
-                                      <th className="px-3 py-2 text-left">Milk litres</th>
-                                      <th className="px-3 py-2 text-left">Shifts</th>
-                                      <th className="px-3 py-2 text-left">Entry status</th>
-                                      <th className="px-3 py-2 text-left">Notes</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {selectedCowRecord.history.length ? selectedCowRecord.history.map((row, index) => (
-                                      <tr key={`${row.entryDate}-${index}`} className="border-t border-slate-200/80 dark:border-white/10">
-                                        <td className="px-3 py-2">{row.entryDate}</td>
-                                        <td className="px-3 py-2 font-semibold">{litres(row.totalLitres)}</td>
-                                        <td className="px-3 py-2">{row.entryShift || 'Morning'}</td>
-                                        <td className="px-3 py-2">{row.status || 'Recorded'}</td>
-                                        <td className="px-3 py-2">{row.notes || '—'}</td>
-                                      </tr>
-                                    )) : <tr><td className="px-3 py-3 text-slate-500 dark:text-slate-400" colSpan="5">No milk history recorded yet.</td></tr>}
-                                  </tbody>
-                                </table>
-                              </div>
+                              {selectedCowMilkGroups.length ? (
+                                <div className="space-y-3">
+                                  {selectedCowMilkGroups.map((group) => (
+                                    <div key={group.entryDate} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-50/95 dark:bg-slate-900/95">
+                                      <div className="border-b border-slate-200/80 bg-slate-100/90 px-4 py-2 text-sm font-black text-slate-700 dark:border-white/10 dark:bg-slate-800/90 dark:text-slate-200">{formatDisplayDate(group.entryDate)}</div>
+                                      <div className="overflow-x-auto">
+                                        <table className="min-w-full text-sm text-slate-800 dark:text-slate-100">
+                                          <thead className="bg-slate-800 text-white dark:bg-slate-900">
+                                            <tr>
+                                              <th className="px-3 py-2 text-left">Milk litres</th>
+                                              <th className="px-3 py-2 text-left">Shifts</th>
+                                              <th className="px-3 py-2 text-left">Entry status</th>
+                                              <th className="px-3 py-2 text-left">Notes</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {group.rows.map((row, index) => (
+                                              <tr key={`${group.entryDate}-${index}`} className="border-t border-slate-200/80 dark:border-white/10">
+                                                <td className="px-3 py-2 font-semibold">{litres(row.totalLitres)}</td>
+                                                <td className="px-3 py-2">{row.entryShift || 'Morning'}</td>
+                                                <td className="px-3 py-2">{row.status || 'Recorded'}</td>
+                                                <td className="px-3 py-2">{row.notes || '—'}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : <div className="rounded-2xl border border-white/10 bg-slate-50/95 px-3 py-3 text-sm text-slate-500 dark:bg-slate-900/95 dark:text-slate-400">No milk history recorded yet.</div>}
                             </div>
 
                             <div className="rounded-3xl border border-white/30 bg-white/72 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-slate-950/45">
                               <div className="mb-3 text-sm font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">Feed history by date</div>
-                              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-50/95 dark:bg-slate-900/95">
-                                <table className="min-w-full text-sm text-slate-800 dark:text-slate-100">
-                                  <thead className="bg-slate-800 text-white dark:bg-slate-900">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left">Date</th>
-                                      <th className="px-3 py-2 text-left">Food</th>
-                                      <th className="px-3 py-2 text-left">Qty</th>
-                                      <th className="px-3 py-2 text-left">Shifts</th>
-                                      <th className="px-3 py-2 text-left">Amount</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {selectedCowRecord.feedHistory.length ? selectedCowRecord.feedHistory.map((row, index) => (
-                                      <tr key={`${row.entryDate}-${row.foodName}-${index}`} className="border-t border-slate-200/80 dark:border-white/10">
-                                        <td className="px-3 py-2">{row.entryDate}</td>
-                                        <td className="px-3 py-2">{row.foodName}</td>
-                                        <td className="px-3 py-2">{Number(row.quantityKg || 0).toFixed(2)} {row.unitType === 'liter' ? 'L' : 'kg'}</td>
-                                        <td className="px-3 py-2">{row.entryShift || 'Morning'}</td>
-                                        <td className="px-3 py-2 font-semibold">{currency(row.amount || 0)}</td>
-                                      </tr>
-                                    )) : <tr><td className="px-3 py-3 text-slate-500 dark:text-slate-400" colSpan="5">No feed history recorded yet.</td></tr>}
-                                  </tbody>
-                                </table>
-                               </div>
-                             </div>
-                           </div>
+                              {selectedCowFeedGroups.length ? (
+                                <div className="space-y-3">
+                                  {selectedCowFeedGroups.map((group) => (
+                                    <div key={group.entryDate} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-50/95 dark:bg-slate-900/95">
+                                      <div className="border-b border-slate-200/80 bg-slate-100/90 px-4 py-2 text-sm font-black text-slate-700 dark:border-white/10 dark:bg-slate-800/90 dark:text-slate-200">{formatDisplayDate(group.entryDate)}</div>
+                                      <div className="overflow-x-auto">
+                                        <table className="min-w-full text-sm text-slate-800 dark:text-slate-100">
+                                          <thead className="bg-slate-800 text-white dark:bg-slate-900">
+                                            <tr>
+                                              <th className="px-3 py-2 text-left">Food</th>
+                                              <th className="px-3 py-2 text-left">Qty</th>
+                                              <th className="px-3 py-2 text-left">Shifts</th>
+                                              <th className="px-3 py-2 text-left">Amount</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {group.rows.map((row, index) => (
+                                              <tr key={`${group.entryDate}-${row.foodName}-${index}`} className="border-t border-slate-200/80 dark:border-white/10">
+                                                <td className="px-3 py-2">{row.foodName}</td>
+                                                <td className="px-3 py-2">{Number(row.quantityKg || 0).toFixed(2)} {row.unitType === 'liter' ? 'L' : 'kg'}</td>
+                                                <td className="px-3 py-2">{row.entryShift || 'Morning'}</td>
+                                                <td className="px-3 py-2 font-semibold">{currency(row.amount || 0)}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : <div className="rounded-2xl border border-white/10 bg-slate-50/95 px-3 py-3 text-sm text-slate-500 dark:bg-slate-900/95 dark:text-slate-400">No feed history recorded yet.</div>}
+                            </div>
+                          </div>
 
                            <div className="mt-5 rounded-3xl border border-white/30 bg-white/72 p-4 backdrop-blur-lg dark:border-white/10 dark:bg-slate-950/45">
                              <div className="mb-3 flex items-center justify-between">
@@ -2517,6 +2533,21 @@ function createSaleRow(buyers) {
     entry_shift: 'Morning',
     notes: ''
   };
+}
+
+function formatDisplayDate(value) {
+  const parsed = value ? new Date(`${value}T00:00:00`) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yyyy') : value || '—';
+}
+
+function groupRowsByDate(rows = []) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const entryDate = row.entryDate || 'Unknown date';
+    if (!groups.has(entryDate)) groups.set(entryDate, []);
+    groups.get(entryDate).push(row);
+  });
+  return Array.from(groups.entries()).map(([entryDate, groupedRows]) => ({ entryDate, rows: groupedRows }));
 }
 
 function getLookupTimestampForDate(value) {
