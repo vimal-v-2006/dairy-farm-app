@@ -165,9 +165,6 @@ function App() {
   const latestSavedEntryDateLabel = latestSavedEntry?.entry?.entry_date
     ? format(new Date(`${latestSavedEntry.entry.entry_date}T00:00:00`), 'dd-MMM-yy')
     : '—';
-  const latestSavedEntryHint = latestSavedEntry?.entry?.updated_at
-    ? `Updated ${new Date(latestSavedEntry.entry.updated_at).toLocaleString()}`
-    : 'No saved entry yet';
   const currentSavedItem = state.dailyData.find((item) => item.entry.entry_date === dailyForm.entry_date) || null;
   const activeCows = useMemo(() => state.cows.filter((cow) => !cow.status || cow.status === 'Lactating' || cow.status === 'Active'), [state.cows]);
   const feedEligibleCows = useMemo(() => state.cows.filter((cow) => cow.status !== 'Sold' && cow.status !== 'Deceased'), [state.cows]);
@@ -1127,7 +1124,7 @@ function App() {
                 </div>
 
                 <div className="grid h-fit content-start gap-4 self-start sm:grid-cols-2">
-                  <ActionCard icon={CalendarDays} title="Latest saved entry" value={latestSavedEntryDateLabel} hint={latestSavedEntryHint} tone="amber" />
+                  <ActionCard icon={CalendarDays} title="Latest saved entry" value={latestSavedEntryDateLabel} tone="amber" valueClassName="text-xl sm:text-2xl" />
                   <ActionCard icon={TrendingUp} title="Best profit day" value={smartInsights.bestDay ? currency(smartInsights.bestDay.profit) : '—'} hint={smartInsights.bestDay ? smartInsights.bestDay.date : 'Not enough saved days yet'} tone="emerald" />
                   <ActionCard icon={Activity} title="Weakest day" value={smartInsights.weakDay ? currency(smartInsights.weakDay.profit) : '—'} hint={smartInsights.weakDay ? `${smartInsights.weakDay.date} needs review` : 'Nothing to flag yet'} tone="rose" />
                   <ActionCard icon={Users} title="Top buyer" value={smartInsights.topBuyerName} hint={`${litres(smartInsights.topBuyerMilk)} sold`} tone="sky" />
@@ -2956,7 +2953,7 @@ const StatCard = ({ icon: Icon, label, value, tone = 'blue', sub }) => (
     </div>
   </Card>
 );
-function ActionCard({ icon: Icon, title, value, hint, tone = 'sky' }) {
+function ActionCard({ icon: Icon, title, value, hint, tone = 'sky', valueClassName = 'text-2xl' }) {
   const toneMap = {
     emerald: {
       ring: 'border-emerald-200/70 dark:border-emerald-400/20',
@@ -2991,8 +2988,8 @@ function ActionCard({ icon: Icon, title, value, hint, tone = 'sky' }) {
       <div className="relative flex items-start justify-between gap-3">
         <div>
           <div className={`text-sm font-bold ${palette.title}`}>{title}</div>
-          <div className="display-font mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{value}</div>
-          <div className="mt-2 text-xs font-medium text-slate-600 dark:text-slate-300">{hint}</div>
+          <div className={`display-font mt-2 font-black tracking-tight text-slate-900 dark:text-white ${valueClassName}`}>{value}</div>
+          {hint ? <div className="mt-2 text-xs font-medium text-slate-600 dark:text-slate-300">{hint}</div> : null}
         </div>
         <div className={`rounded-2xl border border-white/60 p-3 shadow-sm ${palette.iconWrap}`}><Icon size={18} /></div>
       </div>
