@@ -1504,7 +1504,7 @@ function App() {
                           <div className="flex flex-wrap justify-end gap-2 md:max-w-[420px]">
                             <button onClick={() => editCalf(selectedCalfRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-white/20 px-4 py-2.5 text-sm font-semibold"><Pencil size={14} />Edit</button>
                             <button onClick={() => exportCalfRecordPdf(selectedCalfRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-white/20 px-4 py-2.5 text-sm font-semibold">PDF</button>
-                            {!selectedCalfRecord.transferred_to_cow_id && <button onClick={() => deleteCalf(selectedCalfRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100 dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"><Trash2 size={14} />Delete</button>}
+                            {!selectedCalfRecord.transferred_to_cow_id && <button onClick={() => deleteCalf(selectedCalfRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-red-300 bg-red-100/95 px-4 py-2.5 text-sm font-bold text-red-700 shadow-sm transition hover:bg-red-200 dark:border-red-400/40 dark:bg-red-500/18 dark:text-red-300 dark:hover:bg-red-500/28"><Trash2 size={14} />Delete</button>}
                             {!selectedCalfRecord.transferred_to_cow_id && <button onClick={() => transferCalf(selectedCalfRecord)} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 px-4 py-2.5 text-sm font-semibold text-slate-950">Transfer to cows</button>}
                           </div>
                         </div>
