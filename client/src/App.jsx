@@ -312,7 +312,7 @@ function App() {
           litres: sale.litres || '',
           rate_per_litre: sale.rate_per_litre || '',
           payment_status: sale.payment_status || 'Paid',
-          payment_mode: sale.payment_mode || 'Cash',
+          entry_shift: sale.entry_shift || 'Morning',
           notes: sale.notes || ''
         })),
         expenses: mergeExpenseRows(data.expenses.map((expense) => ({
@@ -390,7 +390,9 @@ function App() {
             unit_rate: Number(row.unit_rate || 0),
             amount: Number(row.amount || 0)
           }))),
-        remaining_milk_usage: [dailyForm.remaining_milk_usage, dailyForm.remaining_milk_notes].filter(Boolean).join(' - ')
+        remaining_milk_usage: dailyForm.remaining_milk_notes && !dailyForm.remaining_milk_usage.includes(dailyForm.remaining_milk_notes) 
+          ? `${dailyForm.remaining_milk_usage} - ${dailyForm.remaining_milk_notes}` 
+          : dailyForm.remaining_milk_usage
       };
       await api('/api/daily-entries', { method: 'POST', body: JSON.stringify(payload) });
       await refresh(dailyForm.entry_date, true);
@@ -1295,7 +1297,7 @@ function App() {
                           <Input label="Litres" type="number" value={sale.litres} onChange={(value) => updateMilkSale(index, { litres: value })} />
                           <Input label="Rate/L" type="number" value={sale.rate_per_litre} onChange={(value) => updateMilkSale(index, { rate_per_litre: value })} />
                           <SelectInput label="Payment status" value={sale.payment_status} onChange={(value) => updateMilkSale(index, { payment_status: value })} options={paymentStatusOptions} />
-                          <SelectInput label="Payment mode" value={sale.payment_mode} onChange={(value) => updateMilkSale(index, { payment_mode: value })} options={paymentModeOptions} />
+                          <SelectInput label="Morning / evening" value={sale.entry_shift || 'Morning'} onChange={(value) => updateMilkSale(index, { entry_shift: value })} options={shiftOptions} />
                           <div>
                             <span className="mb-2 block text-sm font-semibold opacity-70">Income</span>
                             <div className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-4 py-3 text-lg font-black text-emerald-700 dark:text-emerald-300">{currency(amount)}</div>
@@ -1386,10 +1388,16 @@ function App() {
                       </div>
                     </div>
                   ))}
-                </div>
-              </Card>
+                 </div>
+                 {dailyForm.expenses.length > 0 && (
+                   <div className="mt-4 flex justify-end gap-2">
+                     <button onClick={() => setDailyForm((prev) => ({ ...prev, expenses: [...prev.expenses, createExpenseRow(state.categories, state.foods, feedEligibleCows, 'common', prev.entry_date)] }))} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add common</button>
+                     <button onClick={() => setDailyForm((prev) => ({ ...prev, expenses: [...prev.expenses, createExpenseRow(state.categories, state.foods, feedEligibleCows, 'feed', prev.entry_date)] }))} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-xl hover:shadow-emerald-500/30"><Plus size={16} />Add food</button>
+                   </div>
+                 )}
+               </Card>
 
-              <Card className="border-2 border-emerald-300/35 bg-gradient-to-r from-emerald-500/10 to-teal-400/10">
+               <Card className="border-2 border-emerald-300/35 bg-gradient-to-r from-emerald-500/10 to-teal-400/10">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 className="text-2xl font-black tracking-tight">{loadedEntryId ? 'Update this daily entry' : 'Save this daily entry'}</h3>
@@ -2512,7 +2520,7 @@ function createSaleRow(buyers) {
     litres: '',
     rate_per_litre: buyers[0]?.default_rate || '',
     payment_status: 'Paid',
-    payment_mode: 'Cash',
+    entry_shift: 'Morning',
     notes: ''
   };
 }
@@ -3081,7 +3089,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                   <span>{sale.buyer_name}</span>
                   <span>{litres(sale.litres)} × {currency(sale.rate_per_litre)} = {currency(sale.income)}</span>
                 </div>
-                <div className="mt-1 text-slate-500 dark:text-slate-400">{sale.payment_status} • {sale.payment_mode || 'Cash'}{sale.notes ? ` • ${sale.notes}` : ''}</div>
+                <div className="mt-1 text-slate-500 dark:text-slate-400">{sale.payment_status} • {sale.entry_shift || 'Morning'}{sale.notes ? ` • ${sale.notes}` : ''}</div>
               </div>
             )) : <div className="text-sm text-slate-400 dark:text-slate-500">No milk sales recorded.</div>}
           </div>
@@ -3115,7 +3123,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
         </div>
         <div className="rounded-2xl border border-slate-200/60 bg-white/50 px-4 py-3 text-sm shadow-sm backdrop-blur-sm dark:border-slate-600/40 dark:bg-slate-700/40">
           <div className="font-semibold text-slate-500 dark:text-slate-400">Remaining milk usage</div>
-          <div className="mt-1 text-slate-800 dark:text-slate-100">{remainingInfo.remainingUsage || '—'}{remainingInfo.remainingNotes ? ` • ${remainingInfo.remainingNotes}` : ''}</div>
+          <div className="mt-1 text-slate-800 dark:text-slate-100">{remainingInfo.remainingUsage || '—'}{remainingInfo.remainingNotes && !remainingInfo.remainingUsage.includes(remainingInfo.remainingNotes) ? ` • ${remainingInfo.remainingNotes}` : ''} • {litres(item.entry.remaining_milk_litres)}</div>
         </div>
       </div>
 
@@ -3128,7 +3136,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                 {[
                   ['Entry date', item.entry.entry_date],
                   ['Total milk litres', item.entry.total_milk_litres],
-                  ['Remaining milk litres', item.entry.remaining_milk_litres],
+                  ['Remaining milk litres', item.entry.remaining_milk_litres ? `${Number(item.entry.remaining_milk_litres).toFixed(2)} L` : '0.00 L'],
                   ['Total income', currency(item.entry.total_income)],
                   ['Total expenses', currency(item.entry.total_expenses)],
                   ['Profit', currency(item.entry.profit)],
@@ -3181,8 +3189,8 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Litres</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Rate</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Income</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Payment</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Notes</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Morning / evening</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Shifts</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3192,8 +3200,8 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.litres}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.rate_per_litre}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.income}</td>
-                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.payment_status} / {sale.payment_mode || 'Cash'}</td>
-                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.notes || '—'}</td>
+                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.payment_status} • {sale.entry_shift || 'Morning'}</td>
+                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.entry_shift || 'Morning'}</td>
                       </tr>
                     )) : <tr><td className="px-3 py-3 text-slate-400 dark:text-slate-500" colSpan="6">No milk sales rows.</td></tr>}
                   </tbody>

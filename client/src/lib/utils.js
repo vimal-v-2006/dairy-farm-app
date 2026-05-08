@@ -654,12 +654,12 @@ export async function exportDetailedDailyPdf({ fileName, title, subtitle, dailyD
       `${Number(sale.litres || 0).toFixed(2)} L`,
       `Rs. ${Number(sale.rate_per_litre || 0).toFixed(2)}`,
       `Rs. ${Number(sale.income || 0).toFixed(2)}`,
-      `${sale.payment_status || 'Paid'} / ${sale.payment_mode || 'Cash'}`,
-      sale.notes || '—'
+      sale.payment_status || 'Paid',
+      sale.entry_shift || 'Morning'
     ]);
 
     if (saleRows.length) {
-      drawSectionTable('Milk Sold Details', ['Buyer', 'Litres', 'Rate/L', 'Income', 'Payment', 'Notes'], saleRows, [59, 130, 246]);
+      drawSectionTable('Milk Sold Details', ['Buyer', 'Litres', 'Rate/L', 'Income', 'Payment', 'Shifts'], saleRows, [59, 130, 246]);
     }
 
     const expenseRows = (item.expenses || []).map((expense) => {
@@ -690,8 +690,9 @@ export async function exportDetailedDailyPdf({ fileName, title, subtitle, dailyD
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'bold');
-    doc.text(`General Notes: ${parsedNotes.generalNotes || '—'}`, margin + 4, y + 6);
-    doc.text(`Remaining Milk: ${parsedNotes.remainingUsage || '—'}${parsedNotes.remainingNotes ? ` - ${parsedNotes.remainingNotes}` : ''}`, margin + 4, y + 12);
+    const generalNotesText = parsedNotes.generalNotes && parsedNotes.generalNotes !== parsedNotes.remainingUsage ? parsedNotes.generalNotes : '';
+    doc.text(`General Notes: ${generalNotesText || '—'}`, margin + 4, y + 6);
+    doc.text(`Remaining Milk: ${Number(item.entry.remaining_milk_litres || 0).toFixed(2)} L`, margin + 4, y + 12);
     y += 20;
 
     if (dayIndex < dailyData.length - 1) {

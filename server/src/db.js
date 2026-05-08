@@ -148,7 +148,7 @@ function initDb() {
       rate_per_litre REAL DEFAULT 0,
       income REAL DEFAULT 0,
       payment_status TEXT DEFAULT 'Paid',
-      payment_mode TEXT DEFAULT 'Cash',
+      entry_shift TEXT DEFAULT 'Morning',
       notes TEXT,
       FOREIGN KEY(daily_entry_id) REFERENCES daily_entries(id) ON DELETE CASCADE,
       FOREIGN KEY(buyer_id) REFERENCES buyers(id) ON DELETE SET NULL
@@ -203,6 +203,9 @@ function initDb() {
   const milkSalesColumns = db.prepare("PRAGMA table_info(milk_sales)").all();
   if (!milkSalesColumns.some((column) => column.name === 'payment_mode')) {
     db.exec("ALTER TABLE milk_sales ADD COLUMN payment_mode TEXT DEFAULT 'Cash'");
+  }
+  if (!milkSalesColumns.some((column) => column.name === 'entry_shift')) {
+    db.exec("ALTER TABLE milk_sales ADD COLUMN entry_shift TEXT DEFAULT 'Morning'");
   }
 
   const cowColumns = db.prepare("PRAGMA table_info(cows)").all();
