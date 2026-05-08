@@ -1631,7 +1631,7 @@ function App() {
                             <div className="flex flex-wrap gap-2">
                               <button onClick={() => downloadCowPdf(selectedCowRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/15 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"><Printer size={14} />PDF</button>
                               <button onClick={() => editCow(selectedCowRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/15 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"><Pencil size={14} />Edit</button>
-                              <button onClick={() => deleteCow(selectedCowRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100 dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"><Trash2 size={14} />Delete</button>
+                              <button onClick={() => deleteCow(selectedCowRecord)} className="inline-flex items-center gap-2 rounded-2xl border border-red-300 bg-red-100/95 px-4 py-2.5 text-sm font-bold text-red-700 shadow-sm transition hover:bg-red-200 dark:border-red-400/40 dark:bg-red-500/18 dark:text-red-300 dark:hover:bg-red-500/28"><Trash2 size={14} />Delete</button>
                             </div>
                           </div>
 
