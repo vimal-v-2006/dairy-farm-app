@@ -1509,7 +1509,7 @@ function App() {
                           </div>
                         </div>
 
-                        <div className="mt-4 grid gap-3 md:grid-cols-4">
+                        <div className="mt-5 grid gap-3 md:grid-cols-4">
                           <RecordStat title="Total expense" value={currency(selectedCalfRecord.totalExpense || 0)} tone="orange" />
                           <RecordStat title="Food budget" value={currency(selectedCalfRecord.foodExpense || 0)} tone="teal" />
                           <RecordStat title="Other expense" value={currency(selectedCalfRecord.otherExpense || 0)} tone="amber" />
@@ -1517,7 +1517,7 @@ function App() {
                         </div>
 
                         {selectedCalfExpenseGroups.length ? (
-                          <div className="space-y-3">
+                          <div className="mt-5 space-y-3">
                             {selectedCalfExpenseGroups.map((group) => (
                               <div key={group.entryDate} className="overflow-hidden rounded-2xl border border-white/10 bg-white/50 dark:bg-slate-900/30">
                                 <div className="border-b border-white/10 bg-slate-100/70 px-4 py-2 text-sm font-black text-slate-700 dark:bg-slate-900/50 dark:text-slate-200">{formatDisplayDate(group.entryDate)}</div>
@@ -1552,7 +1552,7 @@ function App() {
                               </div>
                             ))}
                           </div>
-                        ) : <div className="rounded-2xl border border-white/10 px-3 py-3 text-sm opacity-60">No calf expenses yet.</div>}
+                        ) : <div className="mt-5 rounded-2xl border border-white/10 px-3 py-3 text-sm opacity-60">No calf expenses yet.</div>}
                       </div>
                     )}
                   </div>
