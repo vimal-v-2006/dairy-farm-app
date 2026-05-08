@@ -1103,37 +1103,47 @@ export async function exportSingleCalfPdf(calf) {
     y = margin;
   };
 
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(margin, y, pageWidth - margin * 2, 32, 4, 4, 'F');
-  doc.setDrawColor(203, 213, 225);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(margin, y, pageWidth - margin * 2, 32, 4, 4, 'S');
-  doc.setFontSize(10);
-  doc.setTextColor(15, 23, 42);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Calf Details', margin + 6, y + 7);
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.setFont('helvetica', 'normal');
-  const details = [
+  const detailTop = y;
+  const detailGap = 6;
+  const detailColWidth = (pageWidth - margin * 2 - detailGap) / 2;
+  const detailBoxHeight = 34;
+  const detailRowsLeft = [
     ['Breed', calf.breed || 'Not recorded'],
     ['Birth / start', calf.birth_date || '—'],
-    ['Expected lactation', calf.expected_lactation_date || '—'],
+    ['Expected lactation', calf.expected_lactation_date || '—']
+  ];
+  const detailRowsRight = [
     ['Base price', `Rs. ${Number(calf.purchase_price || 0).toFixed(2)}`],
     ['Paid before transfer', `Rs. ${Number(calf.paid_amount || 0).toFixed(2)}`],
     ['Transferred', calf.transferred_to_cow_id ? `Yes • ${calf.transferred_at || ''}` : 'No']
   ];
-  details.forEach(([label, value], i) => {
-    const lineY = y + 14 + i * 3.2;
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(100, 116, 139);
-    doc.text(`${label}:`, margin + 6, lineY);
-    doc.setFont('helvetica', 'normal');
+
+  const drawDetailBox = (x, title, rows) => {
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(x, detailTop, detailColWidth, detailBoxHeight, 4, 4, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, detailTop, detailColWidth, detailBoxHeight, 4, 4, 'S');
+    doc.setFontSize(10);
     doc.setTextColor(15, 23, 42);
-    const textWidth = doc.getTextWidth(String(label) + ': ');
-    doc.text(String(value), margin + 6 + textWidth, lineY, { maxWidth: pageWidth - margin * 2 - textWidth - 6 });
-  });
-  y += 38;
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, x + 5, detailTop + 7);
+
+    rows.forEach(([label, value], index) => {
+      const rowY = detailTop + 14 + index * 5.5;
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(100, 116, 139);
+      doc.text(label, x + 5, rowY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(value), x + 5, rowY + 3.1, { maxWidth: detailColWidth - 10 });
+    });
+  };
+
+  drawDetailBox(margin, 'Calf Details', detailRowsLeft);
+  drawDetailBox(margin + detailColWidth + detailGap, 'Transfer & Cost', detailRowsRight);
+  y += detailBoxHeight + 8;
 
   const stats = [
     { label: 'Total Expense', value: `Rs. ${Number(calf.totalExpense || 0).toFixed(2)}` },
