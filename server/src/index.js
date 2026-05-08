@@ -23,9 +23,18 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 const upload = multer({ dest: uploadsDir });
 
 const allowedOrigins = isProduction
-  ? [clientUrl, 'https://*.vercel.app', 'https://*.railway.app'].filter(Boolean)
+  ? (clientUrl ? [clientUrl] : []).concat(['https://*.vercel.app', 'https://*.railway.app'])
   : ['http://localhost:5173', 'http://localhost:5174'];
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.some(o => origin.match(o.replace('*', '.*')))) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));
