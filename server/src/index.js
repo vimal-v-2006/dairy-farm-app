@@ -16,13 +16,15 @@ initDb();
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'milk-business-pro-reset-2026-05-01-v2';
-const upload = multer({ dest: path.join(__dirname, '..', 'uploads') });
+const uploadsDir = process.env.UPLOADS_DIR ? path.resolve(process.env.UPLOADS_DIR) : path.join(__dirname, '..', 'uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+const upload = multer({ dest: uploadsDir });
 
 app.use(cors());
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
 const clientDistPath = path.join(__dirname, '..', '..', 'client', 'dist');
 const hasClientBuild = fs.existsSync(path.join(clientDistPath, 'index.html'));
@@ -812,6 +814,7 @@ if (hasClientBuild) {
 app.listen(PORT, () => {
   console.log(`Dairy Farm API running on http://localhost:${PORT}`);
   console.log(`SQLite DB: ${process.env.DB_PATH || path.join(__dirname, '..', 'data', 'dairy-farm.db')}`);
+  console.log(`Uploads dir: ${uploadsDir}`);
   if (hasClientBuild) {
     console.log(`Serving client build from: ${clientDistPath}`);
   }
