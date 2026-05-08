@@ -1081,7 +1081,7 @@ function App() {
                 <div>
                   <p className="text-sm opacity-60">Welcome back, {user.username}</p>
                   <h2 className="display-font text-3xl font-black tracking-tight md:text-4xl">Milk business dashboard</h2>
-                  <p className="mt-1 max-w-2xl text-sm opacity-70">Track production, sales, expenses, pending payments, and profit with a cleaner business-first layout.</p>
+                  <p className="mt-1 max-w-2xl text-sm opacity-70">Track production, sales, expenses, and profit with a cleaner business-first layout.</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
