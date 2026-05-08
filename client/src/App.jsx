@@ -2513,7 +2513,7 @@ function createSaleRow(buyers) {
   return {
     buyer_id: buyers[0]?.id || '',
     litres: '',
-    rate_per_litre: buyers[0]?.default_rate || '',
+    rate_per_litre: '',
     entry_shift: 'Morning',
     notes: ''
   };
