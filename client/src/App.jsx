@@ -1124,7 +1124,7 @@ function App() {
                 </div>
 
                 <div className="grid h-fit content-start gap-4 self-start sm:grid-cols-2">
-                  <ActionCard icon={CalendarDays} title="Latest saved entry" value={latestSavedEntryDateLabel} tone="amber" valueClassName="text-xl sm:text-2xl" />
+                  <ActionCard icon={CalendarDays} title="Latest saved entry" value={latestSavedEntryDateLabel} tone="amber" valueClassName="text-sm sm:text-base whitespace-nowrap" />
                   <ActionCard icon={TrendingUp} title="Best profit day" value={smartInsights.bestDay ? currency(smartInsights.bestDay.profit) : '—'} hint={smartInsights.bestDay ? smartInsights.bestDay.date : 'Not enough saved days yet'} tone="emerald" />
                   <ActionCard icon={Activity} title="Weakest day" value={smartInsights.weakDay ? currency(smartInsights.weakDay.profit) : '—'} hint={smartInsights.weakDay ? `${smartInsights.weakDay.date} needs review` : 'Nothing to flag yet'} tone="rose" />
                   <ActionCard icon={Users} title="Top buyer" value={smartInsights.topBuyerName} hint={`${litres(smartInsights.topBuyerMilk)} sold`} tone="sky" />
