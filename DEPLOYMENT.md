@@ -1,155 +1,230 @@
 # Deployment Guide
 
-This app is now wired for production deployment with:
-- Vite client build served by the Node/Express server
-- SQLite path configurable through `DB_PATH`
-- root-level `npm run build` and `npm start`
+This app is now wired for both:
+- **single-service production** (server can serve the built Vite app)
+- **split deployment** with frontend + backend on separate hosts
 
-## Recommended option
+For your setup, the best practical option is:
 
-For this repo, the safest simple setup is:
+## Recommended: Vercel + Fly.io
+- **Frontend:** Vercel
+- **Backend:** Fly.io
+- **Database:** SQLite on a Fly volume
 
-### Option A — Render only (simple)
-- One Render Web Service for the whole repo
-- One persistent disk mounted at `/data`
-- `DB_PATH=/data/dairy-farm.db`
-
-This works fine **if you run a single instance**.
-
-### Option B — Vercel + Fly.io (best split setup)
-- `client/` on Vercel
-- `server/` on Fly.io with a mounted volume
-- `DB_PATH=/data/dairy-farm.db`
-
-This is cleaner if you want frontend/backend separated.
+Why this is better:
+- Vercel is great for static Vite frontend hosting
+- Fly.io supports persistent volumes
+- SQLite survives restarts/redeploys when stored on `/data`
+- cheaper/safer than trying to trust ephemeral local disk on a free web host
 
 ---
 
 ## 1. Production code behavior
 
+### Backend
 The server now:
 - serves `client/dist` automatically when present
 - keeps `/api/*` and `/uploads/*` on the backend
 - falls back to `client/dist/index.html` for app routes
 
+### Database
 The database now:
 - uses `process.env.DB_PATH` when provided
 - otherwise defaults to `server/data/dairy-farm.db`
 - auto-creates the parent folder if needed
 
+### Frontend API
+The client now supports:
+- same-origin API calls by default
+- optional remote backend via `VITE_API_URL`
+
+Example:
+```env
+VITE_API_URL=https://your-server.fly.dev
+```
+
 ---
 
 ## 2. Required environment variables
 
-### Required in production
-- `JWT_SECRET` = a strong secret string
-- `DB_PATH` = persistent-disk path
-
-### Example
+### Backend (Fly.io)
 ```env
 PORT=4000
 JWT_SECRET=replace-this-with-a-long-random-secret
 DB_PATH=/data/dairy-farm.db
 ```
 
----
-
-## 3. Render deployment steps
-
-### Create service
-- Push repo to GitHub
-- In Render: **New → Web Service**
-- Connect this repo
-
-### Use these settings
-- **Root Directory:** leave blank
-- **Build Command:** `npm run build`
-- **Start Command:** `npm start`
-- **Environment:** `Node`
-
-### Add persistent disk
-- Open the service
-- Go to **Disks**
-- Add disk:
-  - **Mount path:** `/data`
-  - **Size:** 1 GB or more
-
-### Add env vars
-- `JWT_SECRET=your-strong-secret`
-- `DB_PATH=/data/dairy-farm.db`
-
-### Important note
-Keep the Render service at **1 instance only** when using SQLite.
-
----
-
-## 4. Vercel + Fly.io split deployment
-
-## Backend on Fly.io
-- Deploy repo or `server/` app to Fly.io
-- Create a volume mounted at `/data`
-- Set:
+### Frontend (Vercel)
 ```env
-DB_PATH=/data/dairy-farm.db
-JWT_SECRET=your-strong-secret
-PORT=4000
+VITE_API_URL=https://your-server.fly.dev
 ```
 
-## Frontend on Vercel
-Set frontend API base URL only if you later convert API calls to absolute URLs.
-Right now this app is easiest to run as a single service because client API calls are same-origin (`/api/...`).
+---
 
-If you want split hosting later, the next step would be adding a `VITE_API_URL` based client helper.
+## 3. Deploy backend on Fly.io
+
+### Install Fly CLI
+```bash
+curl -L https://fly.io/install.sh | sh
+```
+
+### Login
+```bash
+fly auth login
+```
+
+### From repo root
+You can deploy the backend from the `server/` app context, or keep root repo and point Fly to server start flow.
+
+Simplest path for this repo:
+
+```bash
+cd server
+fly launch
+```
+
+During setup:
+- app name: choose anything unique
+- region: choose closest to you/users
+- PostgreSQL: **No**
+- Redis: **No**
+- deploy now: **No** if you want to review config first
+
+### Create persistent volume
+```bash
+fly volumes create dairy_data --size 1
+```
+
+### Set secrets/env
+```bash
+fly secrets set JWT_SECRET="your-long-random-secret"
+fly secrets set DB_PATH="/data/dairy-farm.db"
+```
+
+### Mount volume
+In `fly.toml`, mount the volume at:
+```toml
+[mounts]
+  source = "dairy_data"
+  destination = "/data"
+```
+
+### Deploy backend
+```bash
+fly deploy
+```
+
+After deploy your API will be something like:
+```text
+https://your-app-name.fly.dev
+```
 
 ---
 
-## 5. First deploy checklist
+## 4. Deploy frontend on Vercel
 
-1. Build succeeds locally
-2. Server starts locally after build
-3. `DB_PATH` points to persistent storage
-4. `JWT_SECRET` is set
-5. Only one backend instance is running
-6. Uploads folder behavior is understood
+### In Vercel
+- Import GitHub repo
+- Set **Root Directory** to `client`
+- Framework preset: **Vite**
+
+### Build settings
+- Build command: `npm run build`
+- Output directory: `dist`
+
+### Add environment variable
+```env
+VITE_API_URL=https://your-app-name.fly.dev
+```
+
+### Deploy
+After deploy your frontend will be something like:
+```text
+https://your-app-name.vercel.app
+```
 
 ---
 
-## 6. Important limitation: uploads
+## 5. Important: CORS
+
+Because frontend and backend are on different domains in split deployment, your backend must allow your Vercel origin.
+
+Right now the server uses broad default CORS behavior. That works, but for production security you may later want to restrict it to your Vercel domain.
+
+---
+
+## 6. Important: uploads
 
 Uploaded files currently live under:
 - `server/uploads`
 
-That means uploaded files are **not persistent across redeploys** unless you also move uploads to persistent disk/object storage.
+That means uploaded files are **not automatically persistent** on Fly unless you also move them to the mounted volume.
 
-If you want, the next safe improvement is:
-- make uploads use `UPLOADS_DIR`
-- point it to `/data/uploads`
+Best next improvement:
+- add `UPLOADS_DIR`
+- set it to `/data/uploads`
 
-That would keep uploaded bills/images safe too.
+Then both:
+- SQLite DB
+- uploaded files
+
+will survive redeploys.
 
 ---
 
-## 7. Local production test
+## 7. Local split-deploy test
 
-From repo root:
+### Backend
 ```bash
-npm run build
-npm start
+cd server
+DB_PATH=./data/dairy-farm.db JWT_SECRET=test-secret node src/index.js
 ```
 
-Then open:
-- `http://localhost:4000`
+### Frontend
+In `client/.env.production` or Vercel env:
+```env
+VITE_API_URL=http://localhost:4000
+```
 
-You should see the app served by Express.
+Then build frontend:
+```bash
+cd client
+npm run build
+```
 
 ---
 
-## 8. Recommended next improvement
+## 8. Best next code improvement
 
-Best next deployment-safe code change:
-1. move uploads to env-based persistent storage path
-2. optionally add `VITE_API_URL` support if splitting frontend/backend
+If you want the deployment to be properly durable, the next fix should be:
 
-If you want, do this next:
-- **A. keep single-service Render deploy and make uploads persistent**
-- **B. prepare split deploy for Vercel + Fly.io**
+### Move uploads to persistent storage too
+Example env:
+```env
+UPLOADS_DIR=/data/uploads
+```
+
+That’s the missing piece for full Fly.io durability.
+
+---
+
+## 9. Recommended order for you
+
+1. Deploy backend on Fly.io
+2. Confirm API works
+3. Deploy frontend on Vercel with `VITE_API_URL`
+4. Test login and data save
+5. Then improve uploads persistence
+
+---
+
+## 10. Summary
+
+### Best option for this repo
+- **Frontend:** Vercel
+- **Backend:** Fly.io
+- **Database:** SQLite at `/data/dairy-farm.db`
+
+### Avoid
+- free hosting with ephemeral local filesystem for SQLite
+- multiple backend instances with SQLite
