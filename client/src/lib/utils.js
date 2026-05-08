@@ -654,12 +654,12 @@ export async function exportDetailedDailyPdf({ fileName, title, subtitle, dailyD
       `${Number(sale.litres || 0).toFixed(2)} L`,
       `Rs. ${Number(sale.rate_per_litre || 0).toFixed(2)}`,
       `Rs. ${Number(sale.income || 0).toFixed(2)}`,
-      sale.payment_status || 'Paid',
-      sale.entry_shift || 'Morning'
+      sale.entry_shift || 'Morning',
+      sale.notes || '—'
     ]);
 
     if (saleRows.length) {
-      drawSectionTable('Milk Sold Details', ['Buyer', 'Litres', 'Rate/L', 'Income', 'Payment', 'Shifts'], saleRows, [59, 130, 246]);
+      drawSectionTable('Milk Sold Details', ['Buyer', 'Litres', 'Rate/L', 'Income', 'Shifts', 'Notes'], saleRows, [59, 130, 246]);
     }
 
     const expenseRows = (item.expenses || []).map((expense) => {

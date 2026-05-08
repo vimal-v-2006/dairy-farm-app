@@ -19,7 +19,6 @@ const nav = [
 ];
 
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
-const paymentStatusOptions = ['Paid', 'Pending', 'Partial'];
 const paymentModeOptions = ['Cash', 'GPay', 'PhonePe', 'Paytm', 'Bank Transfer', 'Other Online', 'Other', 'Nothing'];
 const shiftOptions = ['Morning', 'Evening'];
 const remainingMilkOptions = ['Home Use', 'Bonus Quantity', 'Meeting Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
@@ -158,6 +157,17 @@ function App() {
   const trend = dashboard?.charts?.trend || [];
   const latestTrendProfit = Number(trend[trend.length - 1]?.profit || 0);
   const topBuyer = dashboard?.charts?.buyerSplit?.[0] || null;
+  const latestSavedEntry = useMemo(() => state.dailyData.reduce((latest, item) => {
+    if (!item?.entry?.entry_date) return latest;
+    if (!latest) return item;
+    return String(item.entry.entry_date).localeCompare(String(latest.entry.entry_date)) > 0 ? item : latest;
+  }, null), [state.dailyData]);
+  const latestSavedEntryDateLabel = latestSavedEntry?.entry?.entry_date
+    ? format(new Date(`${latestSavedEntry.entry.entry_date}T00:00:00`), 'dd-MMM-yy')
+    : '—';
+  const latestSavedEntryHint = latestSavedEntry?.entry?.updated_at
+    ? `Updated ${new Date(latestSavedEntry.entry.updated_at).toLocaleString()}`
+    : 'No saved entry yet';
   const currentSavedItem = state.dailyData.find((item) => item.entry.entry_date === dailyForm.entry_date) || null;
   const activeCows = useMemo(() => state.cows.filter((cow) => !cow.status || cow.status === 'Lactating' || cow.status === 'Active'), [state.cows]);
   const feedEligibleCows = useMemo(() => state.cows.filter((cow) => cow.status !== 'Sold' && cow.status !== 'Deceased'), [state.cows]);
@@ -182,19 +192,15 @@ function App() {
   const reportInsights = useMemo(() => buildReportInsights(reports), [reports]);
 
   const smartInsights = useMemo(() => {
-    const pendingSales = state.dailyData.flatMap((item) => item.milkSales || []).filter((sale) => sale.payment_status && sale.payment_status !== 'Paid');
-    const pendingAmount = pendingSales.reduce((sum, sale) => sum + Number(sale.income || 0), 0);
     const bestDay = trend.reduce((best, day) => (!best || Number(day.profit || 0) > Number(best.profit || 0) ? day : best), null);
     const weakDay = trend.reduce((worst, day) => (!worst || Number(day.profit || 0) < Number(worst.profit || 0) ? day : worst), null);
     return {
-      pendingSalesCount: pendingSales.length,
-      pendingAmount,
       bestDay,
       weakDay,
       topBuyerName: topBuyer?.name || 'No buyer yet',
       topBuyerMilk: topBuyer?.value || 0
     };
-  }, [state.dailyData, topBuyer, trend]);
+  }, [topBuyer, trend]);
 
   const dailyMetrics = useMemo(() => {
     const produced = dailyForm.entry_mode === 'cows' ? dailyCowTotal : Number(dailyForm.total_milk_litres || 0);
@@ -211,18 +217,12 @@ function App() {
     };
   }, [dailyForm, dailyCowTotal]);
 
-  const dailyHealth = useMemo(() => {
-    const pendingAmount = dailyForm.milkSales
-      .filter((item) => item.payment_status && item.payment_status !== 'Paid')
-      .reduce((sum, item) => sum + Number(item.litres || 0) * Number(item.rate_per_litre || 0), 0);
-    return {
-      saleRows: dailyForm.milkSales.length,
-      expenseRows: dailyForm.expenses.length,
-      pendingAmount,
-      oversold: dailyMetrics.remaining < 0,
-      salesCoverage: dailyMetrics.produced > 0 ? Math.min((dailyMetrics.sold / dailyMetrics.produced) * 100, 100) : 0
-    };
-  }, [dailyForm, dailyMetrics]);
+  const dailyHealth = useMemo(() => ({
+    saleRows: dailyForm.milkSales.length,
+    expenseRows: dailyForm.expenses.length,
+    oversold: dailyMetrics.remaining < 0,
+    salesCoverage: dailyMetrics.produced > 0 ? Math.min((dailyMetrics.sold / dailyMetrics.produced) * 100, 100) : 0
+  }), [dailyForm, dailyMetrics]);
 
   useEffect(() => {
     if (!cowRecordSummaries.length) {
@@ -311,7 +311,6 @@ function App() {
           buyer_id: sale.buyer_id || '',
           litres: sale.litres || '',
           rate_per_litre: sale.rate_per_litre || '',
-          payment_status: sale.payment_status || 'Paid',
           entry_shift: sale.entry_shift || 'Morning',
           notes: sale.notes || ''
         })),
@@ -1128,7 +1127,7 @@ function App() {
                 </div>
 
                 <div className="grid h-fit content-start gap-4 self-start sm:grid-cols-2">
-                  <ActionCard icon={Wallet} title="Pending collections" value={currency(smartInsights.pendingAmount)} hint={`${smartInsights.pendingSalesCount} sale rows need follow-up`} tone="amber" />
+                  <ActionCard icon={CalendarDays} title="Latest saved entry" value={latestSavedEntryDateLabel} hint={latestSavedEntryHint} tone="amber" />
                   <ActionCard icon={TrendingUp} title="Best profit day" value={smartInsights.bestDay ? currency(smartInsights.bestDay.profit) : '—'} hint={smartInsights.bestDay ? smartInsights.bestDay.date : 'Not enough saved days yet'} tone="emerald" />
                   <ActionCard icon={Activity} title="Weakest day" value={smartInsights.weakDay ? currency(smartInsights.weakDay.profit) : '—'} hint={smartInsights.weakDay ? `${smartInsights.weakDay.date} needs review` : 'Nothing to flag yet'} tone="rose" />
                   <ActionCard icon={Users} title="Top buyer" value={smartInsights.topBuyerName} hint={`${litres(smartInsights.topBuyerMilk)} sold`} tone="sky" />
@@ -1250,7 +1249,7 @@ function App() {
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300/90">
                       <span>{dailyHealth.salesCoverage.toFixed(0)}% of produced milk is assigned to sales</span>
-                      <span>{dailyHealth.pendingAmount > 0 ? `Pending ${currency(dailyHealth.pendingAmount)}` : 'No pending payment in this day'}</span>
+                      <span>{dailyHealth.saleRows ? `${dailyHealth.saleRows} sale row${dailyHealth.saleRows > 1 ? 's' : ''} recorded` : 'No sale rows added yet'}</span>
                     </div>
                   </div>
                 </motion.div>
@@ -1292,11 +1291,10 @@ function App() {
                     const amount = Number(sale.litres || 0) * Number(sale.rate_per_litre || 0);
                     return (
                       <div key={index} className="rounded-3xl border border-white/20 bg-white/45 p-4 dark:bg-slate-900/40">
-                        <div className="grid gap-3 xl:grid-cols-[1.15fr_.75fr_.75fr_1fr_1fr_.9fr_auto] xl:items-end">
+                        <div className="grid gap-3 xl:grid-cols-[1.15fr_.75fr_.75fr_1fr_.9fr_auto] xl:items-end">
                           <SelectInput label="Buyer" value={sale.buyer_id} onChange={(value) => updateMilkSale(index, { buyer_id: value })} options={state.buyers.map((buyer) => ({ label: buyer.name, value: buyer.id }))} />
                           <Input label="Litres" type="number" value={sale.litres} onChange={(value) => updateMilkSale(index, { litres: value })} />
                           <Input label="Rate/L" type="number" value={sale.rate_per_litre} onChange={(value) => updateMilkSale(index, { rate_per_litre: value })} />
-                          <SelectInput label="Payment status" value={sale.payment_status} onChange={(value) => updateMilkSale(index, { payment_status: value })} options={paymentStatusOptions} />
                           <SelectInput label="Morning / evening" value={sale.entry_shift || 'Morning'} onChange={(value) => updateMilkSale(index, { entry_shift: value })} options={shiftOptions} />
                           <div>
                             <span className="mb-2 block text-sm font-semibold opacity-70">Income</span>
@@ -2519,7 +2517,6 @@ function createSaleRow(buyers) {
     buyer_id: buyers[0]?.id || '',
     litres: '',
     rate_per_litre: buyers[0]?.default_rate || '',
-    payment_status: 'Paid',
     entry_shift: 'Morning',
     notes: ''
   };
@@ -3089,7 +3086,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                   <span>{sale.buyer_name}</span>
                   <span>{litres(sale.litres)} × {currency(sale.rate_per_litre)} = {currency(sale.income)}</span>
                 </div>
-                <div className="mt-1 text-slate-500 dark:text-slate-400">{sale.payment_status} • {sale.entry_shift || 'Morning'}{sale.notes ? ` • ${sale.notes}` : ''}</div>
+                <div className="mt-1 text-slate-500 dark:text-slate-400">{sale.entry_shift || 'Morning'}{sale.notes ? ` • ${sale.notes}` : ''}</div>
               </div>
             )) : <div className="text-sm text-slate-400 dark:text-slate-500">No milk sales recorded.</div>}
           </div>
@@ -3189,8 +3186,8 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Litres</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Rate</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Income</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Morning / evening</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Shifts</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3200,8 +3197,8 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.litres}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.rate_per_litre}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.income}</td>
-                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.payment_status} • {sale.entry_shift || 'Morning'}</td>
                         <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.entry_shift || 'Morning'}</td>
+                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{sale.notes || '—'}</td>
                       </tr>
                     )) : <tr><td className="px-3 py-3 text-slate-400 dark:text-slate-500" colSpan="6">No milk sales rows.</td></tr>}
                   </tbody>

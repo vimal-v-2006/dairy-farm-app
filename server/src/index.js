@@ -699,7 +699,7 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
     });
 
     const insertSale = db.prepare('INSERT INTO milk_sales (daily_entry_id, buyer_id, litres, rate_per_litre, income, payment_status, entry_shift, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    milkSales.forEach((item) => insertSale.run(dailyEntryId, item.buyer_id || null, item.litres || 0, item.rate_per_litre || 0, Number(item.litres || 0) * Number(item.rate_per_litre || 0), item.payment_status || 'Paid', item.entry_shift || 'Morning', item.notes || ''));
+    milkSales.forEach((item) => insertSale.run(dailyEntryId, item.buyer_id || null, item.litres || 0, item.rate_per_litre || 0, Number(item.litres || 0) * Number(item.rate_per_litre || 0), 'Paid', item.entry_shift || 'Morning', item.notes || ''));
 
     const insertExpense = db.prepare('INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     mergedExpenses.forEach((item) => {
