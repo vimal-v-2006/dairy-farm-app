@@ -22,15 +22,26 @@ const uploadsDir = process.env.UPLOADS_DIR ? path.resolve(process.env.UPLOADS_DI
 fs.mkdirSync(uploadsDir, { recursive: true });
 const upload = multer({ dest: uploadsDir });
 
+const devAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174'
+];
+const privateLanOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/;
 const allowedOrigins = isProduction
   ? (clientUrl ? [clientUrl] : []).concat(['https://*.vercel.app', 'https://*.railway.app'])
-  : ['http://localhost:5173', 'http://localhost:5174'];
+  : devAllowedOrigins;
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some(o => origin.match(o.replace('*', '.*')))) {
+    const isAllowedOrigin = !origin
+      || allowedOrigins.some(o => origin.match(o.replace('*', '.*')))
+      || (!isProduction && privateLanOriginPattern.test(origin));
+
+    if (isAllowedOrigin) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
   credentials: true
