@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -102,10 +102,14 @@ function App() {
   const [loadedEntryId, setLoadedEntryId] = useState(null);
   const [registerFullscreen, setRegisterFullscreen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [activeDailyAction, setActiveDailyAction] = useState('');
   const [selectedCowRecordId, setSelectedCowRecordId] = useState(null);
   const [selectedCalfRecordId, setSelectedCalfRecordId] = useState(null);
   const [cowHistory, setCowHistory] = useState([]);
   const [cowHistoryLoading, setCowHistoryLoading] = useState(false);
+  const cowCollectionRef = useRef(null);
+  const milkSalesRef = useRef(null);
+  const dailyExpensesRef = useRef(null);
 
   async function loadCowHistory(cowId) {
     if (!cowId) {
@@ -132,6 +136,43 @@ function App() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+  useEffect(() => {
+    const updateDailyAction = () => {
+      if (tab !== 'daily' || registerFullscreen) {
+        setActiveDailyAction('');
+        return;
+      }
+
+      const candidates = [
+        dailyForm.entry_mode === 'cows' && dailyForm.cowEntries.length
+          ? { key: 'cow', element: cowCollectionRef.current, lowerBound: -180 }
+          : null,
+        dailyForm.milkSales.length
+          ? { key: 'sale', element: milkSalesRef.current, lowerBound: -180 }
+          : null,
+        dailyForm.expenses.length
+          ? { key: 'expense', element: dailyExpensesRef.current, lowerBound: -220 }
+          : null
+      ].filter(Boolean).map((item) => {
+        const rect = item.element?.getBoundingClientRect();
+        if (!rect || rect.top >= window.innerHeight - 120 || rect.bottom <= item.lowerBound) return null;
+        const visibleHeight = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+        const centerDistance = Math.abs((rect.top + rect.bottom) / 2 - window.innerHeight / 2);
+        return { ...item, visibleHeight, centerDistance };
+      }).filter(Boolean);
+
+      candidates.sort((a, b) => b.visibleHeight - a.visibleHeight || a.centerDistance - b.centerDistance);
+      setActiveDailyAction(candidates[0]?.key || '');
+    };
+
+    updateDailyAction();
+    window.addEventListener('scroll', updateDailyAction, { passive: true });
+    window.addEventListener('resize', updateDailyAction);
+    return () => {
+      window.removeEventListener('scroll', updateDailyAction);
+      window.removeEventListener('resize', updateDailyAction);
+    };
+  }, [tab, dailyForm.entry_mode, dailyForm.cowEntries.length, dailyForm.milkSales.length, dailyForm.expenses.length, registerFullscreen]);
 
   async function refresh(targetDate = dailyForm.entry_date || today(), silentLoad = true) {
     const data = await api('/api/bootstrap');
@@ -875,6 +916,18 @@ function App() {
     window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
   }
 
+  function addCowFromFloatingBar() {
+    const scrollY = window.scrollY;
+    setDailyForm((prev) => ({ ...prev, cowEntries: [...prev.cowEntries, createCowEntryRow(activeCows)] }));
+    window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+  }
+
+  function addSaleFromFloatingBar() {
+    const scrollY = window.scrollY;
+    setDailyForm((prev) => ({ ...prev, milkSales: [...prev.milkSales, createSaleRow(state.buyers)] }));
+    window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+  }
+
   function editCow(cow) {
     setCowEditingId(cow.id);
     setCowForm({
@@ -1204,7 +1257,7 @@ function App() {
               </div>
 
               {dailyForm.entry_mode === 'cows' && (
-                <Card>
+                <Card cardRef={cowCollectionRef}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <SectionTitle title="Cow-wise milk collection" icon={Milk} />
                     <button onClick={() => setDailyForm((prev) => ({ ...prev, cowEntries: [...prev.cowEntries, createCowEntryRow(activeCows)] }))} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-slate-950"><Plus size={16} />Add cow</button>
@@ -1229,7 +1282,7 @@ function App() {
                 </Card>
               )}
 
-              <Card>
+              <Card cardRef={milkSalesRef}>
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <SectionTitle title="Milk sales" icon={Milk} />
                   <button onClick={() => setDailyForm((prev) => ({ ...prev, milkSales: [...prev.milkSales, createSaleRow(state.buyers)] }))} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-slate-950"><Plus size={16} />Add sale</button>
@@ -1262,7 +1315,7 @@ function App() {
                 </div>
               </Card>
 
-              <Card>
+              <Card cardRef={dailyExpensesRef}>
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <SectionTitle title="Daily expenses" icon={CircleDollarSign} />
                   <div className="flex flex-wrap gap-2">
@@ -2121,12 +2174,31 @@ function App() {
         </button>
       )}
 
-      {tab === 'daily' && dailyForm.expenses.length > 0 && !registerFullscreen && (
-        <div className="fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2.5rem)] gap-2 rounded-3xl border border-white/30 bg-white/88 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/88">
-          <button onClick={() => addExpenseFromFloatingBar('common')} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add common</button>
-          <button onClick={() => addExpenseFromFloatingBar('feed')} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-xl hover:shadow-emerald-500/30"><Plus size={16} />Add food</button>
-        </div>
-      )}
+      <AnimatePresence>
+        {activeDailyAction && (
+          <motion.div
+            key={activeDailyAction}
+            initial={{ opacity: 0, y: 18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2.5rem)] gap-2 rounded-3xl border border-white/30 bg-white/88 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/88"
+          >
+            {activeDailyAction === 'cow' && (
+              <button onClick={addCowFromFloatingBar} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add cow</button>
+            )}
+            {activeDailyAction === 'sale' && (
+              <button onClick={addSaleFromFloatingBar} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add sale</button>
+            )}
+            {activeDailyAction === 'expense' && (
+              <>
+                <button onClick={() => addExpenseFromFloatingBar('common')} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add common</button>
+                <button onClick={() => addExpenseFromFloatingBar('feed')} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-xl hover:shadow-emerald-500/30"><Plus size={16} />Add food</button>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {tab !== 'daily' && !registerFullscreen && (
@@ -2928,7 +3000,7 @@ function CowMascot() {
   );
 }
 
-const Card = ({ children, className = '', ...props }) => <motion.div layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3 }} transition={{ duration: 0.22 }} className={`glass premium-card rounded-[2rem] p-5 ${className}`} {...props}>{children}</motion.div>;
+const Card = ({ children, className = '', cardRef = null, ...props }) => <motion.div ref={cardRef} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3 }} transition={{ duration: 0.22 }} className={`glass premium-card rounded-[2rem] p-5 ${className}`} {...props}>{children}</motion.div>;
 const StatCard = ({ icon: Icon, label, value, tone = 'blue', sub }) => (
   <Card>
     <div className="flex items-start justify-between gap-3">
