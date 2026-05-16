@@ -1691,13 +1691,14 @@ function App() {
                             </div>
                           </div>
 
-                          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
                             <RecordStat title="Current status" value={selectedCowRecord.status || 'Lactating'} tone={(selectedCowRecord.status || 'Lactating') === 'Lactating' ? 'emerald' : 'red'} />
                             <RecordStat title="Total milk" value={litres(selectedCowRecord.totalMilk)} tone="sky" />
                             <RecordStat title="Milk entries" value={selectedCowRecord.recordCount} tone="amber" />
                             <RecordStat title="Last milk date" value={selectedCowRecord.lastRecordedDate || '—'} tone="violet" />
                             <RecordStat title="Feed used" value={`${Number(selectedCowRecord.totalFeedKg || 0).toFixed(2)} ${selectedCowRecord.feedHistory.some((row) => row.unitType === 'liter') ? 'units' : 'kg'}`} tone="teal" />
                             <RecordStat title="Feed budget" value={currency(selectedCowRecord.totalFeedBudget || 0)} tone="orange" />
+                            <RecordStat title="Average money spent per day" value={selectedCowRecord.feedDayCount ? currency(selectedCowRecord.averageMoneySpentPerDay || 0) : '—'} tone="rose" />
                           </div>
 
                           <div className="mt-5 grid gap-4 xl:grid-cols-2">
@@ -2373,6 +2374,8 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
     const totalMilk = milkRows.reduce((sum, entry) => sum + Number(entry.total_litres || 0), 0);
     const totalFeedKg = feedRows.reduce((sum, row) => sum + Number(row.quantity_kg || 0), 0);
     const totalFeedBudget = feedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const feedDayCount = new Set(feedRows.map((row) => row.entryDate).filter(Boolean)).size;
+    const averageMoneySpentPerDay = feedDayCount ? totalFeedBudget / feedDayCount : 0;
     const lastRecordedDate = milkRows[0]?.entryDate || '';
     const lastFeedDate = feedRows[0]?.entryDate || '';
     return {
@@ -2380,6 +2383,8 @@ function buildCowRecordSummaries(cows = [], dailyData = []) {
       totalMilk: Number(totalMilk.toFixed(2)),
       totalFeedKg: Number(totalFeedKg.toFixed(2)),
       totalFeedBudget: Number(totalFeedBudget.toFixed(2)),
+      feedDayCount,
+      averageMoneySpentPerDay: Number(averageMoneySpentPerDay.toFixed(2)),
       lastRecordedDate,
       lastFeedDate,
       recordCount: milkRows.length,
