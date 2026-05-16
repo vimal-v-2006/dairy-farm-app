@@ -866,6 +866,15 @@ function App() {
     });
   }
 
+  function addExpenseFromFloatingBar(expenseType) {
+    const scrollY = window.scrollY;
+    setDailyForm((prev) => ({
+      ...prev,
+      expenses: [...prev.expenses, createExpenseRow(state.categories, state.foods, feedEligibleCows, expenseType, prev.entry_date)]
+    }));
+    window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+  }
+
   function editCow(cow) {
     setCowEditingId(cow.id);
     setCowForm({
@@ -1326,12 +1335,6 @@ function App() {
                     </div>
                   ))}
                  </div>
-                 {dailyForm.expenses.length > 0 && (
-                   <div className="mt-4 flex justify-end gap-2">
-                     <button onClick={() => setDailyForm((prev) => ({ ...prev, expenses: [...prev.expenses, createExpenseRow(state.categories, state.foods, feedEligibleCows, 'common', prev.entry_date)] }))} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add common</button>
-                     <button onClick={() => setDailyForm((prev) => ({ ...prev, expenses: [...prev.expenses, createExpenseRow(state.categories, state.foods, feedEligibleCows, 'feed', prev.entry_date)] }))} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-xl hover:shadow-emerald-500/30"><Plus size={16} />Add food</button>
-                   </div>
-                 )}
                </Card>
 
                <Card className="border-2 border-emerald-300/35 bg-gradient-to-r from-emerald-500/10 to-teal-400/10">
@@ -2116,6 +2119,13 @@ function App() {
         >
           ↑ Top
         </button>
+      )}
+
+      {tab === 'daily' && dailyForm.expenses.length > 0 && !registerFullscreen && (
+        <div className="fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2.5rem)] gap-2 rounded-3xl border border-white/30 bg-white/88 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/88">
+          <button onClick={() => addExpenseFromFloatingBar('common')} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"><Plus size={16} />Add common</button>
+          <button onClick={() => addExpenseFromFloatingBar('feed')} className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-xl hover:shadow-emerald-500/30"><Plus size={16} />Add food</button>
+        </div>
       )}
 
       <AnimatePresence>
