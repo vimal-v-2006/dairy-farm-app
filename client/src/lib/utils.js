@@ -18,6 +18,20 @@ const formatEntryDateLabel = (value) => {
   return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yyyy') : value || '—';
 };
 
+const getCowAverageMoneySpentPerDay = (cow = {}) => {
+  if (cow.averageMoneySpentPerDay !== undefined && cow.averageMoneySpentPerDay !== null) {
+    return Number(cow.averageMoneySpentPerDay || 0);
+  }
+
+  const feedRows = cow.feedHistory || [];
+  const feedDayCount = cow.feedDayCount || new Set(feedRows.map((row) => row.entryDate).filter(Boolean)).size;
+  if (!feedDayCount) return 0;
+  const totalFeedBudget = cow.totalFeedBudget !== undefined
+    ? Number(cow.totalFeedBudget || 0)
+    : feedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  return Number((totalFeedBudget / feedDayCount).toFixed(2));
+};
+
 const groupRowsByDate = (rows = [], dateKey = 'entryDate') => {
   const groups = new Map();
   rows.forEach((row) => {
@@ -781,13 +795,15 @@ export async function exportSingleCowPdf(cow) {
 
   // Stats cards
   const feedUnit = (cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'mixed' : 'kg';
+  const averageMoneySpentPerDay = getCowAverageMoneySpentPerDay(cow);
 
   const stats = [
     { label: 'Total Milk', value: `${Number(cow.totalMilk || 0).toFixed(2)} L` },
     { label: 'Milk Entries', value: String(cow.recordCount || 0) },
     { label: 'Last Record', value: cow.lastRecordedDate || 'None' },
     { label: 'Feed Used', value: `${Number(cow.totalFeedKg || 0).toFixed(2)} ${feedUnit === 'mixed' ? 'units' : 'kg'}` },
-    { label: 'Feed Budget', value: `Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}` }
+    { label: 'Feed Budget', value: `Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}` },
+    { label: 'Avg Spend/Day', value: averageMoneySpentPerDay ? `Rs. ${averageMoneySpentPerDay.toFixed(2)}` : 'None' }
   ];
 
   const boxWidth = (pageWidth - margin * 2 - (stats.length - 1) * 4) / stats.length;
@@ -928,13 +944,18 @@ export async function exportAllCowsPdf(cows) {
   const mixedFeedUnits = cows.some((cow) => (cow.feedHistory || []).some((row) => row.unitType === 'liter'));
   const totalBudget = cows.reduce((sum, c) => sum + Number(c.totalFeedBudget || 0), 0);
   const totalEntries = cows.reduce((sum, c) => sum + Number(c.recordCount || 0), 0);
+  const cowsWithAverageSpend = cows.filter((cow) => getCowAverageMoneySpentPerDay(cow) > 0);
+  const averageDailySpend = cowsWithAverageSpend.length
+    ? cowsWithAverageSpend.reduce((sum, cow) => sum + getCowAverageMoneySpentPerDay(cow), 0) / cowsWithAverageSpend.length
+    : 0;
 
   const summaryStats = [
     { label: 'Total Cows', value: String(cows.length) },
     { label: 'Total Milk', value: `${totalMilk.toFixed(2)} L` },
     { label: 'Milk Entries', value: String(totalEntries) },
     { label: 'Total Feed', value: `${totalFeed.toFixed(2)} ${mixedFeedUnits ? 'units' : 'kg'}` },
-    { label: 'Feed Budget', value: `Rs. ${totalBudget.toFixed(2)}` }
+    { label: 'Feed Budget', value: `Rs. ${totalBudget.toFixed(2)}` },
+    { label: 'Avg Spend/Day', value: averageDailySpend ? `Rs. ${averageDailySpend.toFixed(2)}` : 'None' }
   ];
 
   const boxWidth = (pageWidth - margin * 2 - (summaryStats.length - 1) * 4) / summaryStats.length;
@@ -988,7 +1009,8 @@ export async function exportAllCowsPdf(cows) {
     doc.setFontSize(7);
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    const statsLine = `Milk: ${Number(cow.totalMilk || 0).toFixed(2)} L  |  Entries: ${cow.recordCount || 0}  |  Feed: ${Number(cow.totalFeedKg || 0).toFixed(2)} ${(cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'units' : 'kg'}  |  Budget: Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}  |  Last: ${cow.lastRecordedDate || '—'}`;
+    const cowAverageMoneySpentPerDay = getCowAverageMoneySpentPerDay(cow);
+    const statsLine = `Milk: ${Number(cow.totalMilk || 0).toFixed(2)} L  |  Entries: ${cow.recordCount || 0}  |  Feed: ${Number(cow.totalFeedKg || 0).toFixed(2)} ${(cow.feedHistory || []).some((row) => row.unitType === 'liter') ? 'units' : 'kg'}  |  Budget: Rs. ${Number(cow.totalFeedBudget || 0).toFixed(2)}  |  Avg/day: ${cowAverageMoneySpentPerDay ? `Rs. ${cowAverageMoneySpentPerDay.toFixed(2)}` : 'None'}  |  Last: ${cow.lastRecordedDate || '—'}`;
     doc.text(statsLine, margin + 6, y + 21, { maxWidth: pageWidth - margin * 2 - 12 });
 
     y += 24;
