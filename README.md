@@ -385,8 +385,32 @@ This starts:
 - frontend on `http://localhost:5173`
 - backend on `http://localhost:4000`
 
+The browser should normally open the frontend URL. The frontend calls `/api/...` and Vite proxies those requests to the backend on port `4000`.
+
 ### Root development script
 The root project uses `concurrently` to run both client and server together.
+
+---
+
+## Local Network / DDNS Access
+
+For a simple self-hosted setup on a home/office laptop or mini PC:
+
+1. Run the app on the server machine:
+   ```bash
+   npm run dev
+   ```
+2. Open/forward only the frontend port publicly:
+   ```text
+   external 5173 -> SERVER_LAN_IP:5173
+   ```
+3. Keep backend port `4000` private if possible. The frontend dev server proxies `/api` and `/uploads` to `http://localhost:4000` from inside the server.
+4. If using DDNS, open the app with:
+   ```text
+   http://your-ddns-name:5173
+   ```
+
+In development mode the backend accepts localhost, private LAN origins, and public/DDNS origins on ports `5173`, `5174`, and `4000`. This avoids hardcoding a changing public IP in CORS for DDNS/self-hosted installs.
 
 ---
 

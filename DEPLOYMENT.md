@@ -173,8 +173,16 @@ So for Fly durability:
 - uploads must be in `/data/...`
 
 ### CORS
-The backend currently uses broad CORS.
-That works for deployment, but later you may want to restrict it to your Vercel domain.
+For local/dev self-hosting, the backend allows localhost, private LAN origins, and public/DDNS hostnames on app ports `5173`, `5174`, and `4000`. This lets a DDNS hostname keep working when the ISP public IP changes.
+
+For production, prefer a fixed HTTPS frontend/backend origin and restrict CORS with `CLIENT_URL` or a reverse proxy.
+
+### Home router / DDNS self-hosting
+If you run the README dev workflow on a laptop/server:
+- forward public `5173` to the server's LAN `5173`
+- do not expose public `4000` unless you specifically need direct backend access
+- browse to `http://your-ddns-name:5173`
+- `/api` and `/uploads` requests go through Vite on `5173` and are proxied internally to backend `4000`
 
 ---
 
