@@ -29,6 +29,7 @@ const devAllowedOrigins = [
   'http://127.0.0.1:5174'
 ];
 const privateLanOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+const publicDevOriginPattern = /^https?:\/\/[^/\s]+:(5173|5174|4000)$/;
 const allowedOrigins = isProduction
   ? (clientUrl ? [clientUrl] : []).concat(['https://*.vercel.app', 'https://*.railway.app'])
   : devAllowedOrigins;
@@ -36,7 +37,7 @@ app.use(cors({
   origin: (origin, callback) => {
     const isAllowedOrigin = !origin
       || allowedOrigins.some(o => origin.match(o.replace('*', '.*')))
-      || (!isProduction && privateLanOriginPattern.test(origin));
+      || (!isProduction && (privateLanOriginPattern.test(origin) || publicDevOriginPattern.test(origin)));
 
     if (isAllowedOrigin) {
       callback(null, true);
