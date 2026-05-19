@@ -82,11 +82,25 @@ function validateSql(sql, options = {}) {
 
 function collectAffectedDailyEntryIds(sql, type, table) {
   if (!WRITE_TABLES_THAT_AFFECT_DAILY_TOTALS.has(table)) return [];
-  if (type !== 'UPDATE' && type !== 'DELETE') return [];
-  const where = getWhereClause(sql);
-  if (!where) return [];
-  const rows = db.prepare(`SELECT DISTINCT daily_entry_id FROM ${table} WHERE ${where}`).all();
-  return rows.map((row) => row.daily_entry_id).filter(Boolean);
+  if (type !== 'UPDATE' && type !== 'DELETE' && type !== 'INSERT') return [];
+  if (type === 'UPDATE' || type === 'DELETE') {
+    const where = getWhereClause(sql);
+    if (!where) return [];
+    try {
+      const rows = db.prepare(`SELECT DISTINCT daily_entry_id FROM ${table} WHERE ${where}`).all();
+      return rows.map((row) => row.daily_entry_id).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  // INSERT: try to extract entry_date from subquery pattern used by AI
+  // e.g. INSERT INTO milk_sales ... SELECT id, ... FROM daily_entries WHERE entry_date = '2026-05-19'
+  const entryDateMatch = sql.match(/daily_entries\s+WHERE\s+entry_date\s*=\s*'([^']+)'/i);
+  if (entryDateMatch) {
+    const row = db.prepare('SELECT id FROM daily_entries WHERE entry_date = ?').get(entryDateMatch[1]);
+    return row ? [row.id] : [];
+  }
+  return [];
 }
 
 function refreshDailyTotals(dailyEntryIds = []) {
@@ -98,19 +112,27 @@ function refreshDailyTotals(dailyEntryIds = []) {
   `);
 
   ids.forEach((id) => {
-    const milk = db.prepare('SELECT COALESCE(SUM(total_litres),0) AS total FROM cow_milk_entries WHERE daily_entry_id = ?').get(id)?.total || 0;
+    const cowMilkRows = db.prepare('SELECT COALESCE(SUM(total_litres),0) AS total, COUNT(*) AS cnt FROM cow_milk_entries WHERE daily_entry_id = ?').get(id) || {};
     const sales = db.prepare('SELECT COALESCE(SUM(litres),0) AS litres, COALESCE(SUM(income),0) AS income FROM milk_sales WHERE daily_entry_id = ?').get(id) || {};
     const expenses = db.prepare('SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE daily_entry_id = ?').get(id)?.total || 0;
     const current = db.prepare('SELECT total_milk_litres FROM daily_entries WHERE id = ?').get(id);
     if (!current) return;
-    const totalMilk = Number(milk || current.total_milk_litres || 0);
-    const totalIncome = Number(sales.income || 0);
-    const totalExpenses = Number(expenses || 0);
+
+    // Use cow-wise sum when cow entries exist; fall back to manual total only when no cow entries recorded
+    const cowEntriesExist = Number(cowMilkRows.cnt || 0) > 0;
+    const totalMilk = cowEntriesExist
+      ? Number((cowMilkRows.total || 0).toFixed(2))
+      : Number(current.total_milk_litres || 0);
+
+    const totalIncome = Number((sales.income || 0).toFixed(2));
+    const totalExpenses = Number((expenses || 0).toFixed(2));
+    const soldLitres = Number(sales.litres || 0);
+
     updateEntry.run(
-      Number(totalMilk.toFixed(2)),
-      Number((totalMilk - Number(sales.litres || 0)).toFixed(2)),
-      Number(totalIncome.toFixed(2)),
-      Number(totalExpenses.toFixed(2)),
+      totalMilk,
+      Number((totalMilk - soldLitres).toFixed(2)),
+      totalIncome,
+      totalExpenses,
       Number((totalIncome - totalExpenses).toFixed(2)),
       id
     );
@@ -124,7 +146,7 @@ function executeOne(action, options = {}) {
 
   if (validation.type === 'SELECT' || validation.type === 'WITH') {
     const rows = db.prepare(validation.sql).all();
-    return { type: 'select', sql: validation.sql, rowCount: rows.length, rows: rows.slice(0, options.maxRows || 100) };
+    return { type: 'SELECT', sql: validation.sql, rowCount: rows.length, rows: rows.slice(0, options.maxRows || 200) };
   }
 
   if (validation.type === 'DELETE' && !options.confirmed) {

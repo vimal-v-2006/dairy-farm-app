@@ -3,13 +3,39 @@ const { executePlan, validateSql } = require('./dbExecutor');
 const { db } = require('../db');
 
 const pendingConfirmations = new Map();
-const OLLAMA_UNAVAILABLE_REPLY = 'AI model is not available right now. Please check Ollama and the gemma4:31b-cloud model.';
+const AI_UNAVAILABLE_REPLY = 'AI model is not available right now. Please check Ollama and the model.';
 
-function getOllamaConfig() {
-  return {
-    baseUrl: (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, ''),
-    model: process.env.OLLAMA_MODEL || 'gemma4:31b-cloud'
-  };
+// ── UI hint detection ──────────────────────────────────────────────────────────
+// Inspect SELECT result rows and return a ui hint so the frontend can render
+// the best widget: table | metrics | bar_chart | line_chart | list | text
+function detectUiHint(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return 'text';
+  const keys = Object.keys(rows[0]);
+  const numericKeys = keys.filter((k) => rows.every((r) => r[k] !== null && r[k] !== undefined && !isNaN(Number(r[k]))));
+  const dateKeys = keys.filter((k) => /date|day|month|week/i.test(k));
+
+  // Single-row multiple numeric columns → metrics cards
+  if (rows.length === 1 && numericKeys.length >= 2) return 'metrics';
+
+  // Time-series data (date + 1-3 numeric cols) → line chart
+  if (dateKeys.length === 1 && numericKeys.length >= 1 && numericKeys.length <= 3 && rows.length >= 3) return 'line_chart';
+
+  // Name + single value (e.g. cow name + litres) → bar chart
+  if (keys.length === 2 && numericKeys.length === 1 && rows.length >= 2 && rows.length <= 20) return 'bar_chart';
+
+  // Multiple rows with multiple columns → table
+  if (rows.length >= 2 || keys.length >= 3) return 'table';
+
+  return 'list';
+}
+
+// Attach ui hints to execution results
+function attachUiHints(plan, execution) {
+  const results = execution.results || [];
+  return results.map((result, index) => {
+    const uiHint = result.type === 'SELECT' ? detectUiHint(result.rows) : 'text';
+    return { ...result, uiHint, purpose: plan.actions?.[index]?.purpose || '' };
+  });
 }
 
 function extractJson(text) {
@@ -602,28 +628,42 @@ function validateBusinessPlanForVisibility(userMessage, plan) {
 
 function buildSystemPrompt(schemaContext) {
   return `You are the backend AI database assistant for Milk Business Pro, a dairy farm financial app.
-You receive the SQLite schema and a natural language user request. Return ONLY valid JSON. No markdown.
+You receive the SQLite schema and a natural language user request. Return ONLY valid JSON. No markdown. No explanation outside JSON.
 
 DATABASE SCHEMA:
 ${schemaContext}
 
 CURRENT DATE: ${todayIsoDate()}
 
+ANSWERING COMPLEX QUESTIONS:
+- For any analytical/reporting question (totals, averages, comparisons, rankings, trends, profit/loss, best/worst cow, monthly summary, date ranges), always generate a SELECT query — do not say "I cannot answer".
+- Use SQLite aggregate functions: SUM(), AVG(), COUNT(), MAX(), MIN(), GROUP BY, ORDER BY, LIMIT.
+- For monthly/weekly trends: use strftime('%Y-%m', entry_date) for grouping.
+- For cow rankings: JOIN cow_milk_entries with cows, GROUP BY cow_id, ORDER BY SUM(total_litres) DESC.
+- For profit analysis: SELECT entry_date, total_income, total_expenses, profit FROM daily_entries.
+- For buyer analysis: JOIN milk_sales with buyers, GROUP BY buyer_id.
+- Always SELECT human-readable column aliases (e.g. SUM(total_litres) AS total_litres).
+- Never return empty actions for a data question — always attempt a SELECT.
+
+MISSING ENTITY HANDLING:
+- If the user references a cow, buyer, or food item that does not exist in the DB, auto-create it first with an INSERT, then proceed with the original request.
+- For a missing cow: INSERT OR IGNORE INTO cows (name, status) VALUES ('<name>', 'Lactating') before using its id.
+- For a missing buyer: INSERT OR IGNORE INTO buyers (name, default_rate, active) VALUES ('<name>', 0, 1) before using its id.
+- After inserting the new entity, use (SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER('<name>') LIMIT 1) as the cow_id in child rows.
+- Always mention in the reply that a new entity was created automatically.
+
 SECURITY AND EXECUTION RULES:
 - The frontend never touches the database. You are inside the backend.
-- Generate a small DB plan using generic SQL actions, not hardcoded app tools.
 - Allowed SQL only: SELECT, INSERT, UPDATE, DELETE.
 - Never generate DROP, ALTER, CREATE, PRAGMA, VACUUM, ATTACH, DETACH, schema changes, or multiple statements in one SQL string.
 - UPDATE and DELETE must always include a precise WHERE clause.
 - DELETE is dangerous: first SELECT matching rows and set requiresConfirmation true unless the user is already confirming a pending delete.
-- If a delete request matches multiple possible rows, only SELECT choices and ask the user which row to delete.
 - Normal safe INSERTs may execute without confirmation.
 - Simple precise UPDATEs may execute without confirmation, but if ambiguous, SELECT first and ask a clarifying question.
 - Prefer existing categories/rows. Use SELECT first if you need IDs such as category_id, daily_entry_id, cow_id, buyer_id, food_item_id.
-- For expenses: ensure a daily_entries row exists for the target date before inserting expenses. You may use INSERT OR IGNORE into daily_entries(entry_date,...).
-- For cow-wise milk production: ensure a daily_entries row exists, then write cow_milk_entries. Never only update daily_entries.total_milk_litres for cow-wise/cow-named production. Use existing cows.id; if cow is missing or ambiguous, SELECT cows and ask.
-- For milk sales: ensure a daily_entries row exists, then write milk_sales with an existing buyer_id, litres, rate_per_litre, income, payment_status, and entry_shift. If buyer is missing or ambiguous, SELECT buyers and ask.
-- For parent creation, use INSERT OR IGNORE INTO daily_entries(entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes) VALUES (...), then use SELECT id FROM daily_entries WHERE entry_date = ... for child rows.
+- For expenses: ensure a daily_entries row exists for the target date before inserting expenses.
+- For cow-wise milk production: ensure a daily_entries row exists, then write cow_milk_entries.
+- For milk sales: ensure a daily_entries row exists, then write milk_sales with an existing buyer_id, litres, rate_per_litre, income, payment_status, and entry_shift.
 - For milk sales: income = litres * rate_per_litre.
 - For cow milk entries: total_litres should be the entered total, or morning_litres + evening_litres.
 - Keep SQL concise and use SQLite date functions when helpful.
@@ -643,12 +683,67 @@ Return JSON with this exact shape:
 If the user is asking only for explanation or you cannot safely decide the SQL, return actions: [] and a helpful reply.`;
 }
 
+// ── Ollama model selector ──────────────────────────────────────────────────────
+// Always routes to localhost:11434.
+// On first call, fetches /api/tags and picks the best available model based on
+// parameter count. Result is cached for the process lifetime.
+
+const OLLAMA_BASE_URL = 'http://localhost:11434';
+
+// Preference order: larger parameter count wins.
+// Ties broken by this explicit priority list (higher index = lower priority fallback).
+const MODEL_PRIORITY = [
+  'gpt-oss', 'llama3.3', 'llama3.2', 'llama3.1', 'llama3',
+  'mistral-nemo', 'mistral-small', 'mistral',
+  'gemma3', 'gemma2', 'gemma',
+  'qwen2.5', 'qwen2', 'qwen',
+  'phi4', 'phi3',
+  'deepseek-r1', 'deepseek',
+  'codellama', 'neural-chat', 'vicuna'
+];
+
+let _selectedModel = null;
+
+async function selectBestModel() {
+  if (_selectedModel) return _selectedModel;
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error('tags failed');
+    const { models = [] } = await res.json();
+    if (!models.length) throw new Error('no models');
+
+    // Parse parameter size string like "20.9B", "8.0B", "3.2B" → number
+    function parseParams(m) {
+      const raw = m.details?.parameter_size || '0';
+      return parseFloat(raw.replace(/[^0-9.]/g, '')) || 0;
+    }
+
+    // Score: param count (primary) + priority list bonus (secondary)
+    function score(m) {
+      const params = parseParams(m);
+      const nameBase = m.name.split(':')[0].toLowerCase();
+      const priorityBonus = MODEL_PRIORITY.indexOf(nameBase);
+      // Higher params = better; priority list breaks ties (earlier = better = higher bonus)
+      return params * 1000 + (priorityBonus >= 0 ? (MODEL_PRIORITY.length - priorityBonus) : 0);
+    }
+
+    const best = models.slice().sort((a, b) => score(b) - score(a))[0];
+    _selectedModel = best.name;
+    console.log(`[AI] Ollama model selected: ${_selectedModel} (${best.details?.parameter_size || '?'} params)`);
+  } catch (err) {
+    // Fallback: use env var or a sensible default if tags endpoint fails
+    _selectedModel = process.env.OLLAMA_MODEL || 'llama3:8b';
+    console.warn(`[AI] Could not fetch Ollama models (${err.message}). Falling back to: ${_selectedModel}`);
+  }
+  return _selectedModel;
+}
+
 async function callOllama(messages) {
-  const { baseUrl, model } = getOllamaConfig();
+  const model = await selectBestModel();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages, stream: false, format: 'json' }),
@@ -697,6 +792,91 @@ async function planForMessage(message) {
   return plan;
 }
 
+// ── Cascading entity resolution ────────────────────────────────────────────────
+// Before executing a plan, detect referenced entities (cows, buyers, food items)
+// that don't exist yet and prepend INSERT actions to create them automatically.
+// This lets the user say "Bella gave 10L this morning" without pre-creating Bella.
+
+function resolveMissingEntities(userMessage, plan) {
+  const prependActions = [];
+  const prependReplies = [];
+
+  // ── Auto-create missing cow ──────────────────────────────────────────────
+  const cowActions = (plan.actions || []).filter((a) =>
+    /cow_milk_entries|expenses/i.test(a.sql || '') && /cow_id/i.test(a.sql || '')
+  );
+  if (cowActions.length) {
+    // Extract cow name from message
+    const normalized = String(userMessage || '').toLowerCase();
+    const allCows = db.prepare("SELECT id, name FROM cows WHERE name IS NOT NULL AND TRIM(name) != ''").all();
+    const mentionedCow = allCows.find((c) =>
+      new RegExp(`\\b${String(c.name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(normalized)
+    );
+    // If no cow matched and the plan references a cow_id that looks like a name literal
+    if (!mentionedCow) {
+      // Try to extract a proper noun from message as candidate cow name
+      const nameMatch = userMessage.match(/\b([A-Z][a-z]{2,})\b/);
+      if (nameMatch) {
+        const cowName = nameMatch[1];
+        const exists = db.prepare('SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1').get(cowName);
+        if (!exists) {
+          prependActions.push({
+            sql: `INSERT OR IGNORE INTO cows (name, status) VALUES ('${cowName.replace(/'/g, "''")}', 'Lactating')`,
+            purpose: `Auto-create cow "${cowName}" referenced in user message.`,
+            requiresConfirmation: false
+          });
+          prependReplies.push(`Cow "${cowName}" was not found — created automatically as Lactating.`);
+
+          // Patch plan actions to use subquery for cow_id
+          plan.actions = (plan.actions || []).map((a) => {
+            if (!/cow_id/i.test(a.sql || '')) return a;
+            // Replace numeric cow_id placeholder with subquery if it looks wrong
+            const patched = a.sql.replace(
+              /\bcow_id\s*,\s*(\d+)\b/gi,
+              `cow_id, (SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER('${cowName.replace(/'/g, "''")}') LIMIT 1)`
+            );
+            return { ...a, sql: patched };
+          });
+        }
+      }
+    }
+  }
+
+  // ── Auto-create missing buyer ──────────────────────────────────────────
+  const saleActions = (plan.actions || []).filter((a) => /milk_sales/i.test(a.sql || '') && /INSERT/i.test(a.sql || ''));
+  if (saleActions.length) {
+    const normalized = String(userMessage || '').toLowerCase();
+    const allBuyers = db.prepare("SELECT id, name FROM buyers WHERE name IS NOT NULL AND TRIM(name) != '' AND COALESCE(active,1)=1").all();
+    const mentionedBuyer = allBuyers.find((b) =>
+      new RegExp(`\\b${String(b.name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(normalized)
+    );
+    if (!mentionedBuyer) {
+      const nameMatch = userMessage.match(/\b([A-Z][a-z]{2,})\b/);
+      if (nameMatch) {
+        const buyerName = nameMatch[1];
+        const exists = db.prepare('SELECT id FROM buyers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND COALESCE(active,1)=1 LIMIT 1').get(buyerName);
+        if (!exists) {
+          prependActions.push({
+            sql: `INSERT OR IGNORE INTO buyers (name, default_rate, active) VALUES ('${buyerName.replace(/'/g, "''")}', 0, 1)`,
+            purpose: `Auto-create buyer "${buyerName}" referenced in user message.`,
+            requiresConfirmation: false
+          });
+          prependReplies.push(`Buyer "${buyerName}" was not found — created automatically.`);
+        }
+      }
+    }
+  }
+
+  if (prependActions.length) {
+    plan.actions = [...prependActions, ...plan.actions];
+    if (prependReplies.length) {
+      plan.reply = [...prependReplies, plan.reply || ''].filter(Boolean).join(' ');
+    }
+  }
+
+  return plan;
+}
+
 async function handleChat({ message, userId = 'default' }) {
   const trimmed = String(message || '').trim();
   if (!trimmed) return { success: true, reply: 'Please type a question or database request.', actions: [], data: {} };
@@ -706,14 +886,18 @@ async function handleChat({ message, userId = 'default' }) {
     if (pending && isConfirmationMessage(trimmed)) {
       pendingConfirmations.delete(userId);
       const execution = executePlan(pending.plan, { confirmed: true });
+      const enrichedResults = attachUiHints(pending.plan, execution);
       const reply = await makeReplyFromResults(pending.originalMessage, pending.plan, execution);
-      return { success: true, reply, actions: pending.plan.actions || [], data: { results: summarizeResults(pending.plan, execution) } };
+      return { success: true, reply, actions: pending.plan.actions || [], data: { results: enrichedResults, uiHints: enrichedResults.map((r) => r.uiHint) } };
     }
 
     let plan = buildDailyEntryPlanFromMessage(trimmed) || await planForMessage(trimmed);
     if (!plan.actions.length) {
       return { success: true, reply: plan.reply || 'I need a clearer database request.', actions: [], data: {} };
     }
+
+    // Auto-create missing referenced entities (cows, buyers) before execution
+    plan = resolveMissingEntities(trimmed, plan);
 
     const visibilityProblem = validateBusinessPlanForVisibility(trimmed, plan);
     if (visibilityProblem) {
@@ -742,16 +926,17 @@ async function handleChat({ message, userId = 'default' }) {
     }
 
     const execution = executePlan(plan);
+    const enrichedResults = attachUiHints(plan, execution);
     const reply = plan.deterministicRepair ? plan.reply : await makeReplyFromResults(trimmed, plan, execution);
-    return { success: true, reply, actions: plan.actions, data: { results: summarizeResults(plan, execution) } };
+    return { success: true, reply, actions: plan.actions, data: { results: enrichedResults, uiHints: enrichedResults.map((r) => r.uiHint) } };
   } catch (err) {
     const messageText = String(err.message || err);
     if (/fetch|Ollama|abort|ECONNREFUSED|ENOTFOUND|terminated|HTTP 404|HTTP 500/i.test(messageText)) {
-      return { success: true, reply: OLLAMA_UNAVAILABLE_REPLY, actions: [], data: { error: 'ollama_unavailable' } };
+      return { success: true, reply: AI_UNAVAILABLE_REPLY, actions: [], data: { error: 'ollama_unavailable' } };
     }
     console.error('[AI DB Agent Error]', err);
     return { success: false, reply: 'I could not safely complete that database request.', actions: [], data: { error: messageText } };
   }
 }
 
-module.exports = { handleChat, OLLAMA_UNAVAILABLE_REPLY, buildDailyEntryPlanFromMessage, buildCowWiseMilkPlanFromMessage };
+module.exports = { handleChat, AI_UNAVAILABLE_REPLY, buildDailyEntryPlanFromMessage, buildCowWiseMilkPlanFromMessage };

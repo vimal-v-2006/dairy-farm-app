@@ -705,11 +705,16 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
 
   const tx = db.transaction(() => {
     const mergedExpenses = mergeExpenseRows(expenses);
+
+    // Compute milk total from cow entries if present (cow-wise mode), else use client-supplied value
+    const cowTotal = cowEntries.reduce((sum, item) => sum + Number(item.total_litres || 0), 0);
+    const effectiveMilkLitres = cowEntries.length > 0 ? cowTotal : Number(total_milk_litres || 0);
+
     const totalIncome = milkSales.reduce((sum, item) => sum + Number(item.litres || 0) * Number(item.rate_per_litre || 0), 0);
     const totalExpenses = mergedExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const sold = milkSales.reduce((sum, item) => sum + Number(item.litres || 0), 0);
-    const remaining = Number(total_milk_litres || 0) - sold;
-    const profit = totalIncome - totalExpenses;
+    const remaining = Number((effectiveMilkLitres - sold).toFixed(2));
+    const profit = Number((totalIncome - totalExpenses).toFixed(2));
 
     const existing = getSingleValue('SELECT id FROM daily_entries WHERE entry_date = ?', [entry_date]);
     let dailyEntryId;
@@ -717,14 +722,14 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
     if (existing) {
       dailyEntryId = existing.id;
       db.prepare(`UPDATE daily_entries SET total_milk_litres=?, remaining_milk_litres=?, total_income=?, total_expenses=?, profit=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-        .run(total_milk_litres || 0, remaining, totalIncome, totalExpenses, profit, [notes, remaining_milk_usage].filter(Boolean).join(' | '), dailyEntryId);
+        .run(effectiveMilkLitres, remaining, totalIncome, totalExpenses, profit, [notes, remaining_milk_usage].filter(Boolean).join(' | '), dailyEntryId);
       db.prepare('DELETE FROM cow_milk_entries WHERE daily_entry_id=?').run(dailyEntryId);
       db.prepare('DELETE FROM milk_sales WHERE daily_entry_id=?').run(dailyEntryId);
       db.prepare('DELETE FROM expenses WHERE daily_entry_id=?').run(dailyEntryId);
     } else {
       const info = db.prepare(`INSERT INTO daily_entries (entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(entry_date, total_milk_litres || 0, remaining, totalIncome, totalExpenses, profit, [notes, remaining_milk_usage].filter(Boolean).join(' | '));
+        .run(entry_date, effectiveMilkLitres, remaining, totalIncome, totalExpenses, profit, [notes, remaining_milk_usage].filter(Boolean).join(' | '));
       dailyEntryId = info.lastInsertRowid;
     }
 
@@ -738,7 +743,12 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
     });
 
     const insertSale = db.prepare('INSERT INTO milk_sales (daily_entry_id, buyer_id, litres, rate_per_litre, income, payment_status, entry_shift, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    milkSales.forEach((item) => insertSale.run(dailyEntryId, item.buyer_id || null, item.litres || 0, item.rate_per_litre || 0, Number(item.litres || 0) * Number(item.rate_per_litre || 0), 'Paid', item.entry_shift || 'Morning', item.notes || ''));
+    milkSales.forEach((item) => {
+      const litres = Number(item.litres || 0);
+      const rate = Number(item.rate_per_litre || 0);
+      const income = Number((litres * rate).toFixed(2));
+      insertSale.run(dailyEntryId, item.buyer_id || null, litres, rate, income, 'Paid', item.entry_shift || 'Morning', item.notes || '');
+    });
 
     const insertExpense = db.prepare('INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     mergedExpenses.forEach((item) => {
@@ -772,7 +782,7 @@ app.post('/api/daily-entries', auth, upload.any(), (req, res) => {
     });
 
     refreshInvestmentStatuses();
-    return { dailyEntryId, totalIncome, totalExpenses, profit, remaining };
+    return { dailyEntryId, totalMilkLitres: effectiveMilkLitres, totalIncome, totalExpenses, profit, remaining };
   });
 
   ok(res, { entry: tx() });
