@@ -236,29 +236,7 @@ The backend creates tables automatically if they do not exist. It also handles s
 
 This keeps the app private to the authorized user.
 
-### 5. AI agent workflow
-
-The AI farm agent uses a tool-calling loop backed by a local Ollama LLM.
-
-How it works:
-- The frontend sends the user's message to `POST /api/agent/chat`
-- The backend builds a system prompt with available tool definitions and sends it (plus conversation history) to Ollama
-- The model responds with JSON: either `{"type":"tool_call","tool":"...","arguments":{...}}` or `{"type":"final","answer":"..."}`
-- For tool calls, the backend executes the tool (reads from the database or prepares a write action)
-- Write actions (add cow, add expense, delete, etc.) require user confirmation before execution
-- The tool result is fed back into the conversation, and the model decides whether to call another tool or give a final answer
-- Maximum 6 tool calls per request to prevent runaway loops
-
-Key components in `server/agent/`:
-- `ollamaClient.js` — communicates with Ollama's `/api/chat` endpoint
-- `toolSchemas.js` — Zod schemas and tool definitions the model sees
-- `toolExecutor.js` — executes tool calls against the SQLite database
-- `agent.js` — orchestrates the message loop and JSON parsing
-- `systemPrompt.js` — builds the system prompt with rules and available tools
-
-The agent supports full CRUD operations across cows, calves, buyers, expenses, milk entries, milk sales, food items, expense categories, investments, and daily entries.
-
-### 6. Daily entry workflow
+### 5. Daily entry workflow
 When a user saves a daily entry:
 - frontend collects milk, sales, and expense data
 - backend validates and normalizes the data
@@ -311,19 +289,7 @@ It works like this:
 
 This allows capital recovery tracking without damaging standard daily business reporting.
 
-### 10. AI Farm Agent (Ollama-powered chatbot)
-
-The app includes an AI-powered farm assistant that understands natural language and can query or modify your farm data using tools.
-
-> **Important:** You must be **signed in** to your farm account to use the AI assistant. The chat button appears at the bottom-left of the screen after login. See [Ollama setup guide](https://ollama.com) for installing the local LLM backend.
-
-- Ask questions like "How much milk did we produce today?" or "Which cow is giving the least milk?"
-- Request actions like "Add an expense for cattle feed" or "Update Bella's status to Sold"
-- The AI confirms before writing anything to the database
-- Powered by a local Ollama model (e.g., `gemma4:31b-cloud`)
-- All agent logic is in `server/agent/` and `server/routes/agent.js`
-
-### 11. Export technology
+### 10. Export technology
 The app supports export features using:
 - **jsPDF** for PDF generation
 - **jsPDF AutoTable** for structured PDF tables
@@ -371,7 +337,6 @@ Before installing, make sure your machine has:
 - **Node.js** 18 or newer recommended
 - **npm** 9 or newer recommended
 - A modern browser such as Chrome, Edge, or Firefox
-- **(Optional for AI agent)** [Ollama](https://ollama.com) installed locally with a model pulled (e.g., `ollama pull gemma4:31b-cloud`)
 
 To verify installation:
 
@@ -486,7 +451,7 @@ npm run start
 
 ## Environment Configuration
 
-The backend supports a custom JWT secret and optional Ollama configuration.
+The backend supports a custom JWT secret.
 
 ### JWT Secret
 ```bash
@@ -494,17 +459,6 @@ cd server
 export JWT_SECRET="change-this-in-production"
 npm run dev
 ```
-
-### Ollama AI Agent (optional)
-Create `server/.env` with:
-```env
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gemma4:31b-cloud
-AI_AGENT_ENABLED=true
-```
-- `OLLAMA_BASE_URL` — your local Ollama server URL
-- `OLLAMA_MODEL` — the model name to use (must be pulled in Ollama)
-- `AI_AGENT_ENABLED` — set to `false` to disable the AI agent
 
 If not provided, the app falls back to an internal default JWT secret. For real deployment, **always set your own secure secret**.
 
