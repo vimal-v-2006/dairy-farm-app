@@ -2778,4 +2778,582 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
   );
 }
 
+
+
+function getExportMeta(reportPreset, reportMeta) {
+  const parseDate = (value) => {
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+  };
+
+  const startDate = parseDate(reportMeta.start);
+  const endDate = parseDate(reportMeta.end);
+
+  if (reportPreset === 'today' && startDate) {
+    const label = format(startDate, 'yyyy-MM-dd');
+    return {
+      fileName: `${label}_milk-business-report`,
+      title: 'Milk Business Report',
+      subtitle: `Today • ${label}`
+    };
+  }
+
+  if ((reportPreset === 'month' || reportPreset === 'previousMonth') && startDate) {
+    const monthLabel = format(startDate, 'MMMM yyyy');
+    return {
+      fileName: `${monthLabel}_milk-business-report`,
+      title: 'Milk Business Report',
+      subtitle: reportPreset === 'month' ? `This month • ${monthLabel}` : `Previous month • ${monthLabel}`
+    };
+  }
+
+  if (reportPreset === 'all') {
+    return {
+      fileName: 'all-data_milk-business-report',
+      title: 'Milk Business Report',
+      subtitle: 'All data'
+    };
+  }
+
+  const startLabel = startDate ? format(startDate, 'yyyy-MM-dd') : 'start';
+  const endLabel = endDate ? format(endDate, 'yyyy-MM-dd') : 'end';
+  return {
+    fileName: `${startLabel}_to_${endLabel}_milk-business-report`,
+    title: 'Milk Business Report',
+    subtitle: `${reportMeta.label} • ${startLabel} to ${endLabel}`
+  };
+}
+
+function isDateInRange(entryDate, start, end) {
+  if (start && entryDate < start) return false;
+  if (end && entryDate > end) return false;
+  return true;
+}
+
+function filterDailyDataByRange(items, start, end) {
+  return items.filter((item) => isDateInRange(item.entry.entry_date, start, end));
+}
+function getExpenseDisplayName(expense) {
+  return (expense?.expense_type || 'common') === 'feed' ? (expense.food_name || 'Feed') : (expense?.category_name || 'Other expense');
+}
+
+function buildRegisterRows(items) {
+  const expenseNames = Array.from(new Set(items.flatMap((item) => item.expenses.map((expense) => getExpenseDisplayName(expense))))).slice(0, 4);
+
+  return items.map((item) => {
+    const orderedSales = [...(item.milkSales || [])].sort((a, b) => Number(b.litres || 0) - Number(a.litres || 0)).slice(0, 3);
+    const remainingInfo = parseStoredNotes(item.entry.notes);
+    const row = {
+      date: item.entry.entry_date,
+      total_milk_l: Number(item.entry.total_milk_litres || 0),
+      sold_milk_l: Number((item.milkSales || []).reduce((sum, sale) => sum + Number(sale.litres || 0), 0).toFixed(2)),
+      remaining_milk_l: Number(item.entry.remaining_milk_litres || 0)
+    };
+
+    for (let i = 0; i < 3; i += 1) {
+      const sale = orderedSales[i];
+      row[`buyer_${i + 1}`] = sale?.buyer_name || '—';
+      row[`buyer_${i + 1}_litres`] = Number(sale?.litres || 0);
+      row[`buyer_${i + 1}_rate`] = Number(sale?.rate_per_litre || 0);
+      row[`buyer_${i + 1}_income`] = Number(sale?.income || 0);
+    }
+
+    expenseNames.forEach((name) => {
+      const total = (item.expenses || [])
+        .filter((expense) => getExpenseDisplayName(expense) === name)
+        .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+      row[`${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_exp`] = Number(total.toFixed(2));
+    });
+
+    row.total_expenses = Number(item.entry.total_expenses || 0);
+    row.total_income = Number(item.entry.total_income || 0);
+    row.profit = Number(item.entry.profit || 0);
+    row.remaining_use = remainingInfo.remainingUsage || '—';
+    row.note = remainingInfo.generalNotes || remainingInfo.remainingNotes || '—';
+    return row;
+  });
+}
+
+function buildPlainRegisterTable(items) {
+  const sortedItems = [...items].sort((a, b) => a.entry.entry_date.localeCompare(b.entry.entry_date));
+  const buyerNames = Array.from(new Set(sortedItems.flatMap((item) => (item.milkSales || []).map((sale) => sale.buyer_name || 'Unknown buyer'))));
+  const expenseNames = Array.from(new Set(sortedItems.flatMap((item) => (item.expenses || []).map((expense) => getExpenseDisplayName(expense)))));
+
+  const rows = sortedItems.map((item) => {
+    const buyers = {};
+    const expenses = {};
+
+    (item.milkSales || []).forEach((sale) => {
+      const buyerName = sale.buyer_name || 'Unknown buyer';
+      if (!buyers[buyerName]) buyers[buyerName] = { litres: 0, income: 0 };
+      buyers[buyerName].litres += Number(sale.litres || 0);
+      buyers[buyerName].income += Number(sale.income || 0);
+    });
+
+    Object.keys(buyers).forEach((buyerName) => {
+      const litresValue = Number(buyers[buyerName].litres || 0);
+      const incomeValue = Number(buyers[buyerName].income || 0);
+      buyers[buyerName].litres = Number(litresValue.toFixed(2));
+      buyers[buyerName].income = Number(incomeValue.toFixed(2));
+      buyers[buyerName].rate = litresValue ? Number((incomeValue / litresValue).toFixed(2)) : 0;
+    });
+
+    (item.expenses || []).forEach((expense) => {
+      const expenseName = getExpenseDisplayName(expense);
+      expenses[expenseName] = Number(((expenses[expenseName] || 0) + Number(expense.amount || 0)).toFixed(2));
+    });
+
+    return {
+      date: item.entry.entry_date,
+      totalMilk: Number(item.entry.total_milk_litres || 0),
+      remainingMilk: Number(item.entry.remaining_milk_litres || 0),
+      totalExpenses: Number(item.entry.total_expenses || 0),
+      totalIncome: Number(item.entry.total_income || 0),
+      profit: Number(item.entry.profit || 0),
+      buyers,
+      expenses
+    };
+  });
+
+  return { buyerNames, expenseNames, rows };
+}
+
+function buildCowRecordSummaries(cows = [], dailyData = []) {
+  return cows.map((cow) => {
+    const milkRows = dailyData
+      .flatMap((item) => (item.cowEntries || []).map((entry) => ({ entryDate: item.entry.entry_date, ...entry })))
+      .filter((entry) => String(entry.cow_id) === String(cow.id))
+      .sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
+
+    const feedRows = dailyData
+      .flatMap((item) => (item.expenses || []).map((expense) => ({ entryDate: item.entry.entry_date, ...expense })))
+      .filter((expense) => (expense.expense_type || 'common') === 'feed' && String(expense.cow_id) === String(cow.id))
+      .sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
+
+    const totalMilk = milkRows.reduce((sum, entry) => sum + Number(entry.total_litres || 0), 0);
+    const totalFeedKg = feedRows.reduce((sum, row) => sum + Number(row.quantity_kg || 0), 0);
+    const totalFeedBudget = feedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const feedDayCount = new Set(feedRows.map((row) => row.entryDate).filter(Boolean)).size;
+    const averageMoneySpentPerDay = feedDayCount ? totalFeedBudget / feedDayCount : 0;
+    const lastRecordedDate = milkRows[0]?.entryDate || '';
+    const lastFeedDate = feedRows[0]?.entryDate || '';
+    return {
+      ...cow,
+      totalMilk: Number(totalMilk.toFixed(2)),
+      totalFeedKg: Number(totalFeedKg.toFixed(2)),
+      totalFeedBudget: Number(totalFeedBudget.toFixed(2)),
+      feedDayCount,
+      averageMoneySpentPerDay: Number(averageMoneySpentPerDay.toFixed(2)),
+      lastRecordedDate,
+      lastFeedDate,
+      recordCount: milkRows.length,
+      history: milkRows.map((entry) => ({
+        entryDate: entry.entryDate,
+        totalLitres: Number(entry.total_litres || 0),
+        entryShift: entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning'),
+        status: entry.status || 'Recorded',
+        notes: entry.notes || ''
+      })),
+      feedHistory: feedRows.map((row) => ({
+        entryDate: row.entryDate,
+        foodName: row.food_name || 'Feed',
+        quantityKg: Number(row.quantity_kg || 0),
+        unitType: row.unit_type || 'kg',
+        unitRate: Number(row.unit_rate || 0),
+        amount: Number(row.amount || 0),
+        entryShift: row.entry_shift || 'Morning',
+        notes: row.description || ''
+      }))
+    };
+  });
+}
+
+function buildCalfSummaries(calves = []) {
+  return calves.map((item) => {
+    const calf = item.calf || item;
+    const expenses = [...(item.expenses || [])].sort((a, b) => String(b.expense_date || '').localeCompare(String(a.expense_date || '')));
+    const totalExpense = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const foodExpense = expenses.filter((expense) => expense.expense_type === 'feed').reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const otherExpense = totalExpense - foodExpense;
+    return {
+      ...calf,
+      expenses,
+      totalExpense: Number(totalExpense.toFixed(2)),
+      foodExpense: Number(foodExpense.toFixed(2)),
+      otherExpense: Number(otherExpense.toFixed(2)),
+      sourceLabel: calf.source_type === 'purchased' ? 'Purchased young' : 'Raised'
+    };
+  });
+}
+
+function buildInvestmentSummaries(investments = [], cows = [], calves = []) {
+  return investments.map((investment) => {
+    const linkedCow = investment.source_type === 'cow'
+      ? cows.find((cow) => String(cow.id) === String(investment.source_id))
+      : null;
+    const linkedCalf = investment.source_type === 'calf'
+      ? calves.find((calf) => String(calf.id) === String(investment.source_id))
+      : null;
+    const sourceLabel = investment.source_type === 'cow'
+      ? `Cow${linkedCow?.name ? ` • ${linkedCow.name}` : ''}`
+      : investment.source_type === 'calf'
+        ? `Calf${linkedCalf?.name ? ` • ${linkedCalf.name}` : ''}`
+        : 'Manual investment';
+    const investmentAmount = Number(investment.investment_amount || 0);
+    const recoveredIncome = Number(investment.recovered_income || investment.completed_income_amount || 0);
+    const progressPercent = investmentAmount > 0 ? Number(((recoveredIncome / investmentAmount) * 100).toFixed(1)) : 0;
+
+    return {
+      ...investment,
+      sourceLabel,
+      linkedCow,
+      linkedCalf,
+      investment_amount: investmentAmount,
+      recovered_income: recoveredIncome,
+      pending_amount: Number(investment.pending_amount || Math.max(investmentAmount - recoveredIncome, 0)),
+      progress_percent: Number.isFinite(progressPercent) ? progressPercent : 0
+    };
+  });
+}
+
+function buildReportInsights(reports) {
+  if (!reports?.rows?.length) {
+    return { bestDay: null, weakDay: null, avgMilkPerDay: 0, avgRatePerLitre: 0 };
+  }
+
+  const bestDay = reports.rows.reduce((best, row) => (!best || Number(row.profit || 0) > Number(best.profit || 0) ? row : best), null);
+  const weakDay = reports.rows.reduce((worst, row) => (!worst || Number(row.profit || 0) < Number(worst.profit || 0) ? row : worst), null);
+  const totalDays = Number(reports.summary?.totalDays || reports.rows.length || 1);
+  const avgMilkPerDay = Number(reports.summary?.milk || 0) / totalDays;
+  const avgRatePerLitre = Number(reports.summary?.milk || 0) ? Number(reports.summary?.income || 0) / Number(reports.summary.milk || 1) : 0;
+
+  return {
+    bestDay,
+    weakDay,
+    avgMilkPerDay,
+    avgRatePerLitre
+  };
+}
+
+function parseStoredNotes(rawNotes = '') {
+  const normalized = String(rawNotes || '').trim();
+
+  if (!normalized) {
+    return {
+      generalNotes: '',
+      remainingUsage: '',
+      remainingNotes: ''
+    };
+  }
+
+  const [generalNotes = '', remainingCombined = ''] = normalized.split(' | ');
+  const cleanedGeneralNotes = remainingMilkOptions.includes(generalNotes) ? '' : generalNotes;
+
+  if (!remainingCombined && remainingMilkOptions.includes(generalNotes)) {
+    return {
+      generalNotes: '',
+      remainingUsage: generalNotes,
+      remainingNotes: ''
+    };
+  }
+
+  if (!remainingCombined && remainingMilkOptions.some((option) => normalized.startsWith(`${option} - `))) {
+    const matchedOption = remainingMilkOptions.find((option) => normalized.startsWith(`${option} - `));
+    return {
+      generalNotes: '',
+      remainingUsage: matchedOption,
+      remainingNotes: normalized.slice((matchedOption || '').length + 3)
+    };
+  }
+
+  const [remainingUsage = '', ...remainingRest] = remainingCombined ? remainingCombined.split(' - ') : [];
+  return {
+    generalNotes: cleanedGeneralNotes,
+    remainingUsage,
+    remainingNotes: remainingRest.join(' - ')
+  };
+}
+
+function createEmptyInvestmentForm() {
+  return {
+    source_type: 'manual',
+    source_id: '',
+    title: '',
+    investment_date: today(),
+    investment_amount: '',
+    notes: ''
+  };
+}
+
+function createEmptyDailyForm() {
+  return {
+    entry_date: today(),
+    entry_mode: 'direct',
+    total_milk_litres: '',
+    notes: '',
+    remaining_milk_usage: 'Home Use',
+    remaining_milk_notes: '',
+    cowEntries: [],
+    milkSales: [],
+    expenses: []
+  };
+}
+
+function hydrateDailyForm(prev, cows, buyers, categories, foods = []) {
+  return {
+    ...prev,
+    cowEntries: prev.cowEntries?.length ? prev.cowEntries : [],
+    milkSales: prev.milkSales?.length ? prev.milkSales : [],
+    expenses: prev.expenses?.length ? prev.expenses : []
+  };
+}
+
+function createCowEntryRow(cows) {
+  return {
+    cow_id: cows[0]?.id || '',
+    total_litres: '',
+    entry_shift: 'Morning',
+    status: 'Recorded',
+    notes: ''
+  };
+}
+
+function createSaleRow(buyers) {
+  return {
+    buyer_id: buyers[0]?.id || '',
+    litres: '',
+    rate_per_litre: '',
+    entry_shift: 'Morning',
+    notes: ''
+  };
+}
+
+function formatDisplayDate(value) {
+  const parsed = value ? new Date(`${value}T00:00:00`) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yyyy') : value || '—';
+}
+
+function groupRowsByDate(rows = [], dateKey = 'entryDate') {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const entryDate = row?.[dateKey] || 'Unknown date';
+    if (!groups.has(entryDate)) groups.set(entryDate, []);
+    groups.get(entryDate).push(row);
+  });
+  return Array.from(groups.entries()).map(([entryDate, groupedRows]) => ({ entryDate, rows: groupedRows }));
+}
+
+function getLookupTimestampForDate(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date(`${raw}T23:59:59`).getTime();
+  const parsed = new Date(raw).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function resolveFoodSnapshot(foods = [], foodId, atValue) {
+  const food = foods.find((item) => String(item.id) === String(foodId));
+  if (!food) return null;
+
+  const history = [...(food.priceHistory || [])].sort((a, b) => {
+    const timeDiff = new Date(b.effective_from).getTime() - new Date(a.effective_from).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+  const oldestHistory = [...history].sort((a, b) => {
+    const timeDiff = new Date(a.effective_from).getTime() - new Date(b.effective_from).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return Number(a.id || 0) - Number(b.id || 0);
+  })[0] || null;
+
+  const lookupTimestamp = getLookupTimestampForDate(atValue);
+  const selectedHistory = history.find((entry) => {
+    const effectiveAt = new Date(entry.effective_from).getTime();
+    if (Number.isNaN(effectiveAt)) return false;
+    if (lookupTimestamp == null) return true;
+    return effectiveAt <= lookupTimestamp;
+  }) || oldestHistory || history[0] || null;
+
+  return {
+    food_item_id: food.id,
+    food_name_snapshot: food.name,
+    unit_type_snapshot: selectedHistory?.unit_type || food.unit_type || 'kg',
+    unit_rate: Number(selectedHistory?.unit_rate ?? food.rate_per_kg ?? 0),
+    food_price_history_id: selectedHistory?.id || null,
+    rate_effective_from: selectedHistory?.effective_from || null
+  };
+}
+
+function createExpenseRow(categories, foods = [], cows = [], expenseType = 'common', entryDate = today()) {
+  const selectedFood = foods[0] || null;
+  const selectedFoodSnapshot = expenseType === 'feed' ? resolveFoodSnapshot(foods, selectedFood?.id, entryDate) : null;
+  return {
+    expense_type: expenseType,
+    category_id: expenseType === 'common' ? categories[0]?.id || '' : '',
+    cow_id: expenseType === 'feed' ? cows[0]?.id || '' : '',
+    food_item_id: expenseType === 'feed' ? selectedFood?.id || '' : '',
+    food_price_history_id: expenseType === 'feed' ? selectedFoodSnapshot?.food_price_history_id || null : null,
+    food_name_snapshot: expenseType === 'feed' ? selectedFoodSnapshot?.food_name_snapshot || selectedFood?.name || '' : '',
+    unit_type_snapshot: expenseType === 'feed' ? selectedFoodSnapshot?.unit_type_snapshot || selectedFood?.unit_type || 'kg' : '',
+    rate_effective_from: expenseType === 'feed' ? selectedFoodSnapshot?.rate_effective_from || null : null,
+    entry_shift: expenseType === 'feed' ? 'Morning' : '',
+    quantity_kg: '',
+    unit_rate: expenseType === 'feed' ? Number(selectedFoodSnapshot?.unit_rate || 0) : '',
+    amount: '',
+    description: '',
+    payment_mode: 'Cash'
+  };
+}
+
+function mergeExpenseRows(rows = []) {
+  const merged = new Map();
+  const preservedFeedRows = [];
+
+  rows.forEach((row, index) => {
+    const amount = Number(row.amount || 0);
+    const expenseType = row.expense_type || 'common';
+    if (expenseType === 'feed') {
+      if (!row?.cow_id || !row?.food_item_id || !Number(row.quantity_kg || 0) || row.amount === '' || row.amount === null || row.amount === undefined) return;
+      preservedFeedRows.push({
+        ...row,
+        expense_type: 'feed',
+        amount: Number(amount.toFixed(2)),
+        entry_shift: row.entry_shift || 'Morning',
+        quantity_kg: Number(row.quantity_kg || 0),
+        unit_rate: Number(row.unit_rate || 0),
+        food_price_history_id: row.food_price_history_id || null,
+        food_name_snapshot: row.food_name_snapshot || '',
+        unit_type_snapshot: row.unit_type_snapshot || 'kg',
+        rate_effective_from: row.rate_effective_from || null
+      });
+      return;
+    }
+
+    if (!row?.category_id || row.amount === '' || row.amount === null || row.amount === undefined) return;
+
+    const paymentMode = (row.payment_mode || 'Cash').trim() || 'Cash';
+    const description = (row.description || '').trim();
+    const key = `${row.category_id}::${paymentMode.toLowerCase() || `row-${index}`}`;
+
+    if (!merged.has(key)) {
+      merged.set(key, {
+        ...row,
+        amount: Number(amount.toFixed(2)),
+        payment_mode: paymentMode,
+        description
+      });
+      return;
+    }
+
+    const current = merged.get(key);
+    current.amount = Number((Number(current.amount || 0) + amount).toFixed(2));
+    current.description = Array.from(new Set([current.description, description].map((value) => value?.trim()).filter(Boolean))).join(' | ');
+  });
+
+  return [...Array.from(merged.values()), ...preservedFeedRows];
+}
+
+function PlainRegisterTable({ table, fullScreen = false }) {
+  if (!table?.rows?.length) {
+    return <div className="text-sm opacity-70">No saved data yet for the register table.</div>;
+  }
+
+  const formatTableDate = (value) => {
+    const parsed = value ? new Date(`${value}T00:00:00`) : null;
+    return parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd-MMM-yy') : value;
+  };
+
+  const showNumber = (value, emptyLabel = 'Nil') => (value === undefined || value === null || value === '' ? emptyLabel : Number(value).toFixed(2));
+  const cellClass = 'border border-slate-300/80 px-3 py-2 text-right whitespace-nowrap';
+  const headClass = 'border border-slate-400/70 px-3 py-2 font-bold whitespace-nowrap';
+  const totals = table.rows.reduce((sum, row) => ({
+    totalMilk: sum.totalMilk + Number(row.totalMilk || 0),
+    remainingMilk: sum.remainingMilk + Number(row.remainingMilk || 0),
+    totalExpenses: sum.totalExpenses + Number(row.totalExpenses || 0),
+    totalIncome: sum.totalIncome + Number(row.totalIncome || 0),
+    profit: sum.profit + Number(row.profit || 0)
+  }), { totalMilk: 0, remainingMilk: 0, totalExpenses: 0, totalIncome: 0, profit: 0 });
+
+  return (
+    <div className={`w-full max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-slate-400/70 bg-white dark:border-slate-600 dark:bg-slate-950 ${fullScreen ? 'h-full max-h-full' : 'max-h-[70vh]'}`}>
+      <table className="min-w-max border-collapse text-xs text-slate-900 dark:text-slate-100">
+        <thead>
+          <tr className="bg-slate-100 dark:bg-slate-900">
+            <th rowSpan={2} className={`${headClass} text-left`}>Date</th>
+            <th rowSpan={2} className={headClass}>Total milk</th>
+            {table.buyerNames.map((buyerName) => (
+              <th key={buyerName} colSpan={3} className={`${headClass} text-center`}>{buyerName}</th>
+            ))}
+            <th rowSpan={2} className={headClass}>Remaining milk</th>
+            {table.expenseNames.map((expenseName) => (
+              <th key={expenseName} rowSpan={2} className={headClass}>{expenseName}</th>
+            ))}
+            <th rowSpan={2} className={headClass}>Total expenses</th>
+            <th rowSpan={2} className={headClass}>Total income</th>
+            <th rowSpan={2} className={headClass}>Profit</th>
+          </tr>
+          <tr className="bg-slate-50 dark:bg-slate-900/70">
+            {table.buyerNames.flatMap((buyerName) => ([
+              <th key={`${buyerName}-litres`} className={`${headClass} font-semibold`}>Litres</th>,
+              <th key={`${buyerName}-rate`} className={`${headClass} font-semibold`}>Rate</th>,
+              <th key={`${buyerName}-income`} className={`${headClass} font-semibold`}>Income</th>
+            ]))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row) => (
+            <tr key={row.date} className="odd:bg-white even:bg-slate-50/70 dark:odd:bg-slate-950 dark:even:bg-slate-900/50">
+              <td className="border border-slate-300/80 px-3 py-2 font-medium whitespace-nowrap">{formatTableDate(row.date)}</td>
+              <td className={cellClass}>{showNumber(row.totalMilk)}</td>
+              {table.buyerNames.flatMap((buyerName) => ([
+                <td key={`${row.date}-${buyerName}-litres`} className={cellClass}>{showNumber(row.buyers[buyerName]?.litres)}</td>,
+                <td key={`${row.date}-${buyerName}-rate`} className={cellClass}>{showNumber(row.buyers[buyerName]?.rate)}</td>,
+                <td key={`${row.date}-${buyerName}-income`} className={cellClass}>{showNumber(row.buyers[buyerName]?.income)}</td>
+              ]))}
+              <td className={cellClass}>{showNumber(row.remainingMilk)}</td>
+              {table.expenseNames.map((expenseName) => (
+                <td key={`${row.date}-${expenseName}`} className={cellClass}>{showNumber(row.expenses[expenseName])}</td>
+              ))}
+              <td className={cellClass}>{showNumber(row.totalExpenses)}</td>
+              <td className={cellClass}>{showNumber(row.totalIncome)}</td>
+              <td className={`${cellClass} font-semibold`}>{showNumber(row.profit)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="bg-slate-200/80 dark:bg-slate-800/90">
+            <td className="border border-slate-400/80 px-3 py-3 text-left font-black whitespace-nowrap">TOTAL</td>
+            <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.totalMilk)}</td>
+            {table.buyerNames.flatMap((buyerName) => ([
+              <td key={`total-${buyerName}-litres`} className="border border-slate-400/80 px-3 py-3 text-right font-bold whitespace-nowrap">Nil</td>,
+              <td key={`total-${buyerName}-rate`} className="border border-slate-400/80 px-3 py-3 text-right font-bold whitespace-nowrap">Nil</td>,
+              <td key={`total-${buyerName}-income`} className="border border-slate-400/80 px-3 py-3 text-right font-bold whitespace-nowrap">Nil</td>
+            ]))}
+            <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.remainingMilk)}</td>
+            {table.expenseNames.map((expenseName) => (
+              <td key={`total-${expenseName}`} className="border border-slate-400/80 px-3 py-3 text-right font-bold whitespace-nowrap">Nil</td>
+            ))}
+            <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.totalExpenses)}</td>
+            <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.totalIncome)}</td>
+            <td className="border border-slate-400/80 px-3 py-3 text-right font-black whitespace-nowrap">{showNumber(totals.profit)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function NavigationLinks({ tab, onSelect }) {
+  return (
+    <nav className="space-y-2">
+      {nav.map(([key, label, Icon]) => (
+        <button key={key} onClick={() => onSelect(key)} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-medium transition ${tab === key ? 'bg-slate-950 text-white shadow-lg dark:bg-white dark:text-slate-950' : 'hover:bg-white/50 dark:hover:bg-slate-800/60'}`}>
+          <Icon size={18} />
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export default App;
