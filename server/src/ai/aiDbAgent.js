@@ -1,5 +1,6 @@
 const { buildSchemaContext } = require('./schemaInspector');
 const { executePlan, validateSql } = require('./dbExecutor');
+const { db } = require('../db');
 
 const pendingConfirmations = new Map();
 const OLLAMA_UNAVAILABLE_REPLY = 'AI model is not available right now. Please check Ollama and the gemma4:31b-cloud model.';
@@ -45,6 +46,77 @@ function needsConfirmation(plan) {
   });
 }
 
+function getActionTable(action) {
+  const sql = String(action?.sql || action || '').trim();
+  const insertMatch = sql.match(/^INSERT\s+(?:OR\s+(?:IGNORE|ABORT|FAIL|ROLLBACK)\s+)?INTO\s+([`"\[]?\w+[`"\]]?)/i);
+  if (insertMatch) return insertMatch[1].replace(/[`"\[\]]/g, '').toLowerCase();
+  const updateMatch = sql.match(/^UPDATE\s+([`"\[]?\w+[`"\]]?)/i);
+  if (updateMatch) return updateMatch[1].replace(/[`"\[\]]/g, '').toLowerCase();
+  const deleteMatch = sql.match(/^DELETE\s+FROM\s+([`"\[]?\w+[`"\]]?)/i);
+  if (deleteMatch) return deleteMatch[1].replace(/[`"\[\]]/g, '').toLowerCase();
+  return null;
+}
+
+function planHasWrite(plan) {
+  return (Array.isArray(plan?.actions) ? plan.actions : []).some((action) => /^(INSERT|UPDATE|DELETE)\b/i.test(String(action.sql || action || '').trim()));
+}
+
+function planWritesTable(plan, tableName) {
+  return (Array.isArray(plan?.actions) ? plan.actions : []).some((action) => getActionTable(action) === tableName);
+}
+
+function insertColumnsForTable(action, tableName) {
+  if (getActionTable(action) !== tableName) return [];
+  const sql = String(action?.sql || action || '').trim();
+  const match = sql.match(/^INSERT\s+(?:OR\s+(?:IGNORE|ABORT|FAIL|ROLLBACK)\s+)?INTO\s+[`"\[]?\w+[`"\]]?\s*\(([^)]+)\)/i);
+  if (!match) return [];
+  return match[1].split(',').map((column) => column.trim().replace(/[`"\[\]]/g, '').toLowerCase());
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function messageMentionsKnownCow(message) {
+  try {
+    const normalized = String(message || '').toLowerCase();
+    return db.prepare("SELECT name FROM cows WHERE name IS NOT NULL AND TRIM(name) != ''").all()
+      .some((cow) => new RegExp(`\\b${escapeRegex(String(cow.name).toLowerCase())}\\b`).test(normalized));
+  } catch {
+    return false;
+  }
+}
+
+function validateBusinessPlanForVisibility(userMessage, plan) {
+  if (!planHasWrite(plan)) return null;
+  const message = String(userMessage || '').toLowerCase();
+  const actions = Array.isArray(plan?.actions) ? plan.actions : [];
+  const wantsSale = /\b(sales?|sell|sold|buyer|customer|aavin|payment for milk)\b/.test(message);
+  const wantsCowWiseMilk = (/(cow\s*wise|cow-wise|\bcow\b|\bcows\b|\bmilked\b)/.test(message) || messageMentionsKnownCow(userMessage))
+    && /\b(milk|litre|liter|litres|liters|production|produced|yield)\b/.test(message)
+    && !/\bdirect\b/.test(message);
+
+  if (wantsSale && !planWritesTable(plan, 'milk_sales')) {
+    return 'I should save milk sales in the milk sales rows, not only in the daily total. Please include the buyer/date/litres/rate, and I will add it correctly.';
+  }
+
+  if (wantsCowWiseMilk && !planWritesTable(plan, 'cow_milk_entries')) {
+    return 'I should save cow-wise production in cow milk entry rows so it appears in the cow-wise section. Please include the cow name, date, shift, and litres.';
+  }
+
+  const milkSaleInserts = actions.filter((action) => getActionTable(action) === 'milk_sales' && /^INSERT\b/i.test(String(action.sql || action || '').trim()));
+  if (milkSaleInserts.some((action) => !insertColumnsForTable(action, 'milk_sales').includes('buyer_id'))) {
+    return 'Milk sales need a buyer so they appear correctly in the Sales section. Please mention the buyer name, or ask me to list buyers first.';
+  }
+
+  const cowMilkInserts = actions.filter((action) => getActionTable(action) === 'cow_milk_entries' && /^INSERT\b/i.test(String(action.sql || action || '').trim()));
+  if (cowMilkInserts.some((action) => !insertColumnsForTable(action, 'cow_milk_entries').includes('cow_id'))) {
+    return 'Cow-wise milk entries need a cow name/id so they appear correctly. Please mention which cow produced the milk.';
+  }
+
+  return null;
+}
+
 function buildSystemPrompt(schemaContext) {
   return `You are the backend AI database assistant for Milk Business Pro, a dairy farm financial app.
 You receive the SQLite schema and a natural language user request. Return ONLY valid JSON. No markdown.
@@ -66,6 +138,9 @@ SECURITY AND EXECUTION RULES:
 - Simple precise UPDATEs may execute without confirmation, but if ambiguous, SELECT first and ask a clarifying question.
 - Prefer existing categories/rows. Use SELECT first if you need IDs such as category_id, daily_entry_id, cow_id, buyer_id, food_item_id.
 - For expenses: ensure a daily_entries row exists for the target date before inserting expenses. You may use INSERT OR IGNORE into daily_entries(entry_date,...).
+- For cow-wise milk production: ensure a daily_entries row exists, then write cow_milk_entries. Never only update daily_entries.total_milk_litres for cow-wise/cow-named production. Use existing cows.id; if cow is missing or ambiguous, SELECT cows and ask.
+- For milk sales: ensure a daily_entries row exists, then write milk_sales with an existing buyer_id, litres, rate_per_litre, income, payment_status, and entry_shift. If buyer is missing or ambiguous, SELECT buyers and ask.
+- For parent creation, use INSERT OR IGNORE INTO daily_entries(entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes) VALUES (...), then use SELECT id FROM daily_entries WHERE entry_date = ... for child rows.
 - For milk sales: income = litres * rate_per_litre.
 - For cow milk entries: total_litres should be the entered total, or morning_litres + evening_litres.
 - Keep SQL concise and use SQLite date functions when helpful.
@@ -155,6 +230,12 @@ async function handleChat({ message, userId = 'default' }) {
     const plan = await planForMessage(trimmed);
     if (!plan.actions.length) {
       return { success: true, reply: plan.reply || 'I need a clearer database request.', actions: [], data: {} };
+    }
+
+    const visibilityProblem = validateBusinessPlanForVisibility(trimmed, plan);
+    if (visibilityProblem) {
+      console.warn('[AI DB Plan Blocked]', visibilityProblem, plan.actions);
+      return { success: true, reply: visibilityProblem, actions: [], data: { blockedPlan: true } };
     }
 
     // Validate before saving/executing so unsafe plans fail closed.

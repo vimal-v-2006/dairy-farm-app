@@ -71,9 +71,13 @@ function inspectSchema() {
     relationshipHints: getRelationshipHints(),
     dateFormat: 'YYYY-MM-DD for business dates such as entry_date, expense_date, investment_date',
     importantBehavior: [
-      'daily_entries stores totals: total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit',
-      'cow_milk_entries.total_litres should equal morning_litres + evening_litres when both are present',
-      'milk_sales.income should equal litres * rate_per_litre',
+      'daily_entries is the parent/day summary table. The UI opens one daily_entries row by entry_date and then displays child rows from cow_milk_entries, milk_sales, and expenses.',
+      'Do not say cow-wise milk production was added by only inserting/updating daily_entries.total_milk_litres. Cow-wise production is visible only when cow_milk_entries rows exist for the daily_entry_id and cow_id.',
+      'For cow-wise production, create/find the daily_entries parent first, then INSERT/UPDATE cow_milk_entries with daily_entry_id, cow_id, entry_shift, total_litres, and matching morning_litres/evening_litres. Morning shift stores morning_litres=total_litres and evening_litres=0. Evening shift stores evening_litres=total_litres and morning_litres=0.',
+      'Direct total milk production without cow names may update daily_entries.total_milk_litres, but cow-wise requests must use cow_milk_entries child rows.',
+      'Milk sales are visible only when milk_sales child rows exist for the daily_entry_id. Always use an existing buyer_id when the user mentions a buyer; if buyer is missing or ambiguous, SELECT buyers and ask before writing.',
+      'milk_sales.income must equal litres * rate_per_litre. payment_status should normally be Paid and entry_shift should default to Morning if unknown.',
+      'After cow_milk_entries, milk_sales, or expenses writes, daily_entries totals should be recalculated from child rows: milk from cow_milk_entries, income from milk_sales, expenses from expenses, remaining = milk - sold.',
       'expenses usually connect to daily_entries through daily_entry_id',
       'expense categories already include Medical expense, Feed 1-4, Labour, Transport, Electricity, Maintenance, Cow purchase, Other expense',
       'Use SELECT first when updating/deleting ambiguous records so the user can confirm exact rows'
