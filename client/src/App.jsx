@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, Baby, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, LogOut, Menu, Milk, NotebookPen, Pencil, Plus, Printer, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, Users, Wallet, X } from 'lucide-react';
+import { Activity, AlertCircle, Baby, Bot, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, Loader2, LogOut, Menu, Milk, NotebookPen, Pencil, Plus, Printer, Send, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, Users, Wallet, X } from 'lucide-react';
 import { api, storage } from './api/client';
 import { useAuth } from './context/AuthContext';
 import { currency, exportBusinessRegisterExcel, exportDetailedDailyPdf, litres, today, exportSingleCowPdf, exportAllCowsPdf, exportSingleCalfPdf, exportAllCalvesPdf } from './lib/utils';
@@ -2215,9 +2215,259 @@ function App() {
           </motion.button>
         )}
       </AnimatePresence>
+      <AIAssistant onFarmDataChanged={() => refresh(dailyForm.entry_date || today(), true)} />
       {message && <div className="glass fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium">{message}</div>}
     </div>
   );
+}
+
+function AIAssistant({ onFarmDataChanged }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: 'Ask me about milk, profit, expenses, buyers, cows, or reports. I will confirm before changing farm records.' }
+  ]);
+  const [busy, setBusy] = useState(false);
+  const [busySeconds, setBusySeconds] = useState(0);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [lastToolResults, setLastToolResults] = useState([]);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, busy, pendingAction]);
+
+  useEffect(() => {
+    if (!busy) {
+      setBusySeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setBusySeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+
+  const history = messages
+    .filter((item) => (item.role === 'user' || item.role === 'assistant') && !item.error)
+    .slice(-10)
+    .reduce((items, item, index, list) => {
+      if (item.role !== 'user') return items;
+      const assistant = list.slice(index + 1).find((next) => next.role === 'assistant');
+      items.push({ user: item.text, assistant: assistant?.text || '' });
+      return items;
+    }, []);
+
+  async function sendMessage(event) {
+    event?.preventDefault();
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    setBusy(true);
+    setMessages((prev) => [...prev, { role: 'user', text }]);
+    try {
+      const data = await api('/api/agent/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: text, history })
+      });
+      setMessages((prev) => [...prev, { role: 'assistant', text: data.reply || 'I could not produce a response.' }]);
+      setPendingAction(data.needsConfirmation ? data.pendingAction : null);
+      setLastToolResults(data.toolResults || []);
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: error.message || 'AI model is not ready yet. Please check Ollama download or model availability.', error: true }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmPending() {
+    if (!pendingAction || busy) return;
+    setBusy(true);
+    try {
+      const data = await api('/api/agent/chat', {
+        method: 'POST',
+        body: JSON.stringify({ confirmedAction: true, pendingActionId: pendingAction.id })
+      });
+      setMessages((prev) => [...prev, { role: 'assistant', text: data.reply || 'Confirmed.' }]);
+      setPendingAction(null);
+      setLastToolResults(data.toolResults || []);
+      await onFarmDataChanged?.();
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: error.message || 'Could not confirm that action.', error: true }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelPending() {
+    if (!pendingAction || busy) return;
+    setBusy(true);
+    try {
+      const data = await api('/api/agent/chat', {
+        method: 'POST',
+        body: JSON.stringify({ cancelledAction: true, pendingActionId: pendingAction.id })
+      });
+      setMessages((prev) => [...prev, { role: 'assistant', text: data.reply || 'Cancelled.' }]);
+      setPendingAction(null);
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: error.message || 'Could not cancel that action.', error: true }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <AnimatePresence>
+        {open && (
+          <motion.section
+            initial={{ opacity: 0, y: 18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed bottom-24 left-4 z-[70] flex h-[min(680px,calc(100vh-7rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.5rem] border border-white/30 bg-white/92 shadow-2xl shadow-slate-900/20 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/92 md:left-6"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3 dark:border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-emerald-500/15 p-2 text-emerald-600 dark:text-emerald-300"><Bot size={20} /></div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">Farm Manager AI</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Uses tools before touching data</p>
+                </div>
+              </div>
+              <button onClick={() => setOpen(false)} className="rounded-xl border border-slate-200 px-2.5 py-2 text-slate-600 dark:border-white/10 dark:text-slate-300"><X size={16} /></button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              {messages.map((item, index) => (
+                <div key={`${item.role}-${index}`} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : item.error ? 'border border-red-200 bg-red-50 text-red-700 dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-300' : 'border border-slate-200 bg-white text-slate-800 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100'}`}>
+                    {item.error && <AlertCircle className="mb-1 inline-block" size={15} />} <FormattedAssistantText text={item.text} />
+                  </div>
+                </div>
+              ))}
+              {lastToolResults.length > 0 && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                  <div className="font-bold">Tools used</div>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {lastToolResults.slice(-4).map((tool, index) => (
+                      <span key={`${tool.tool}-${index}`} className="rounded-full bg-white/70 px-2 py-1 dark:bg-slate-950/40">{tool.tool}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {busy && (
+                <div className="flex justify-start">
+                  <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300">
+                    <Loader2 className="shrink-0 animate-spin" size={16} /> {getAssistantBusyText(busySeconds)}
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {pendingAction && (
+              <div className="border-t border-slate-200/70 bg-amber-50/90 px-4 py-3 dark:border-white/10 dark:bg-amber-500/10">
+                <div className="text-xs font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">Confirmation preview</div>
+                <div className="mt-2 grid gap-1.5 text-sm text-slate-800 dark:text-slate-100">
+                  {Object.entries(pendingAction.preview || {}).map(([key, value]) => (
+                    <div key={key} className="grid grid-cols-[108px_1fr] gap-2">
+                      <span className="font-semibold text-slate-500 dark:text-slate-400">{key}</span>
+                      <span>{value || '-'}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={confirmPending} disabled={busy} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"><CheckCircle2 size={16} />Confirm</button>
+                  <button onClick={cancelPending} disabled={busy} className="flex-1 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-60 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={sendMessage} className="flex gap-2 border-t border-slate-200/70 p-3 dark:border-white/10">
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Ask about profit, cows, expenses..."
+                className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+              />
+              <button disabled={busy || !input.trim()} className="rounded-2xl bg-slate-950 px-3.5 py-2.5 text-white disabled:opacity-50 dark:bg-white dark:text-slate-950"><Send size={18} /></button>
+            </form>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      <button
+        onClick={() => setOpen((value) => !value)}
+        className="fixed bottom-5 left-5 z-[71] inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-2xl shadow-slate-900/20 transition hover:scale-105 dark:bg-white dark:text-slate-950 md:bottom-6"
+      >
+        <Bot size={18} />
+        AI
+      </button>
+    </>
+  );
+}
+
+function getAssistantBusyText(seconds) {
+  if (seconds >= 45) return 'Still working. Cloud model/tool calls can take a little longer.';
+  if (seconds >= 18) return 'Checking farm data and waiting for the AI response...';
+  if (seconds >= 6) return 'Using farm tools. Please wait...';
+  return 'Thinking with farm tools...';
+}
+
+function normalizeAssistantText(text) {
+  return String(text || '')
+    .replace(/\s+([•*])\s+/g, '\n$1 ')
+    .replace(/\s+-\s+(?=[A-Z0-9₹])/g, '\n- ')
+    .replace(/:\s+-\s+/g, ':\n- ')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`(.*?)`/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}]/gu, '')
+    .trim();
+}
+
+function FormattedAssistantText({ text }) {
+  const lines = normalizeAssistantText(text).split('\n');
+  const blocks = [];
+  let bullets = [];
+
+  const flushBullets = () => {
+    if (!bullets.length) return;
+    blocks.push(
+      <ul key={`bullets-${blocks.length}`} className="my-1.5 list-disc space-y-1 pl-5">
+        {bullets.map((line, index) => (
+          <li key={`${line}-${index}`}>{line}</li>
+        ))}
+      </ul>
+    );
+    bullets = [];
+  };
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushBullets();
+      return;
+    }
+    const bullet = line.match(/^[-•*]\s+(.*)$/);
+    if (bullet) {
+      bullets.push(bullet[1]);
+      return;
+    }
+    flushBullets();
+    blocks.push(<p key={`line-${index}`} className="my-1">{line}</p>);
+  });
+  flushBullets();
+
+  return <div className="whitespace-pre-wrap break-words">{blocks.length ? blocks : text}</div>;
 }
 
 function getExportMeta(reportPreset, reportMeta) {

@@ -39,6 +39,6 @@ export async function api(path, options = {}) {
   } catch {
     throw new Error('Server returned an invalid response. Please refresh the page and try again.');
   }
-  if (!response.ok) throw new Error(data.message || 'Request failed');
+  if (!response.ok) throw new Error(data.message || data.reply || 'Request failed');
   return data;
 }

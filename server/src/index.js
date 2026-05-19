@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -10,6 +11,7 @@ const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const dayjs = require('dayjs');
 const { db, initDb } = require('./db');
+const { createAgentRouter } = require('../routes/agent');
 
 initDb();
 
@@ -827,6 +829,8 @@ app.delete('/api/account', auth, (req, res) => {
 });
 
 app.get('/api/meta', auth, (req, res) => ok(res, { now: new Date().toISOString() }));
+
+app.use('/api/agent', createAgentRouter({ auth }));
 
 app.use((err, req, res, next) => {
   console.error(err);
