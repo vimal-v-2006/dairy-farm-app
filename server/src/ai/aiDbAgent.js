@@ -100,13 +100,127 @@ function findMentionedCow(message) {
   return cows.find((cow) => new RegExp(`\\b${escapeRegex(String(cow.name).toLowerCase())}\\b`).test(normalized)) || null;
 }
 
+function shouldDefaultDateToToday(message) {
+  const text = String(message || '').toLowerCase();
+  return /\b(add|save|record|enter|insert|set|update|change|sold|sale|expense|milk|gave|produced)\b/.test(text);
+}
+
+function getEntryDateForWrite(message) {
+  return parseBusinessDate(message) || (shouldDefaultDateToToday(message) ? todayIsoDate() : null);
+}
+
+function parseMoneyAmount(message) {
+  const text = String(message || '').toLowerCase();
+  const patterns = [
+    /₹\s*(\d+(?:\.\d+)?)/,
+    /\brs\.?\s*(\d+(?:\.\d+)?)/,
+    /\b(\d+(?:\.\d+)?)\s*(?:rupees|rs)\b/,
+    /\b(?:amount|expense|cost|paid|payment)\s*(?:is|of|for|=|:)?\s*(\d+(?:\.\d+)?)/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const amount = Number(match[1]);
+      if (Number.isFinite(amount) && amount > 0) return amount;
+    }
+  }
+  return null;
+}
+
+function parseRate(message) {
+  const text = String(message || '').toLowerCase();
+  const patterns = [
+    /(?:rate|rate\s*per\s*(?:litre|liter|kg)|per\s*(?:litre|liter|kg)|at)\s*(?:₹|rs\.?)?\s*(\d+(?:\.\d+)?)/,
+    /(?:₹|rs\.?)\s*(\d+(?:\.\d+)?)\s*\/\s*(?:l|ltr|litre|liter|kg)/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const rate = Number(match[1]);
+      if (Number.isFinite(rate) && rate > 0) return rate;
+    }
+  }
+  return null;
+}
+
+function parseQuantityKg(message) {
+  const text = String(message || '').toLowerCase();
+  const match = text.match(/\b(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms)\b/);
+  if (!match) return null;
+  const quantity = Number(match[1]);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+}
+
+function findMentionedBuyer(message) {
+  const normalized = String(message || '').toLowerCase();
+  const buyers = db.prepare("SELECT id, name, default_rate FROM buyers WHERE name IS NOT NULL AND TRIM(name) != '' AND COALESCE(active, 1) = 1 ORDER BY LENGTH(name) DESC").all();
+  return buyers.find((buyer) => new RegExp(`\\b${escapeRegex(String(buyer.name).toLowerCase())}\\b`).test(normalized)) || null;
+}
+
+function findMentionedFood(message) {
+  const normalized = String(message || '').toLowerCase();
+  const foods = db.prepare("SELECT id, name, rate_per_kg, unit_type FROM food_items WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY LENGTH(name) DESC").all();
+  return foods.find((food) => new RegExp(`\\b${escapeRegex(String(food.name).toLowerCase())}\\b`).test(normalized)) || null;
+}
+
+function findExpenseCategory(message) {
+  const text = String(message || '').toLowerCase();
+  const categories = db.prepare("SELECT id, name FROM expense_categories WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY LENGTH(name) DESC").all();
+  const direct = categories.find((category) => new RegExp(`\b${escapeRegex(String(category.name).toLowerCase())}\b`).test(text));
+  if (direct) return direct;
+  const synonymMap = [
+    { regex: /\b(medicine|medical|doctor|vet|veterinary|health|treatment)\b/, name: 'Medical expense' },
+    { regex: /\b(feed|food|fodder|concentrate|silage|grass)\b/, name: 'Feed 1' },
+    { regex: /\b(labour|labor|worker|salary|wage)\b/, name: 'Labour' },
+    { regex: /\b(transport|diesel|petrol|vehicle|lorry|auto)\b/, name: 'Transport' },
+    { regex: /\b(electricity|current|power|bill)\b/, name: 'Electricity' },
+    { regex: /\b(repair|maintenance|service)\b/, name: 'Maintenance' },
+    { regex: /\b(cow\s*purchase|purchase\s*cow|bought\s*cow)\b/, name: 'Cow purchase' }
+  ];
+  const mapped = synonymMap.find((item) => item.regex.test(text));
+  return mapped ? categories.find((category) => category.name.toLowerCase() === mapped.name.toLowerCase()) || null : null;
+}
+
+function latestFoodSnapshot(food, entryDate) {
+  if (!food) return null;
+  const history = db.prepare(`SELECT id, food_item_id, purchase_quantity, purchase_amount, unit_rate, unit_type, effective_from
+    FROM food_price_history
+    WHERE food_item_id = ? AND date(effective_from) <= date(?)
+    ORDER BY datetime(effective_from) DESC, id DESC
+    LIMIT 1`).get(food.id, entryDate);
+  if (history) {
+    return {
+      food_price_history_id: history.id,
+      food_name_snapshot: food.name,
+      unit_type_snapshot: history.unit_type || food.unit_type || 'kg',
+      unit_rate: Number(history.unit_rate || food.rate_per_kg || 0),
+      rate_effective_from: history.effective_from || null
+    };
+  }
+  return {
+    food_price_history_id: null,
+    food_name_snapshot: food.name,
+    unit_type_snapshot: food.unit_type || 'kg',
+    unit_rate: Number(food.rate_per_kg || 0),
+    rate_effective_from: null
+  };
+}
+
+function ensureDailyEntryAction(entryDate, notes = 'Created by AI assistant') {
+  return {
+    sql: `INSERT OR IGNORE INTO daily_entries (entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes) VALUES (${sqlQuote(entryDate)}, 0, 0, 0, 0, 0, ${sqlQuote(notes)})`,
+    purpose: 'Ensure the daily entry row exists before saving daily-entry tab data.',
+    requiresConfirmation: false
+  };
+}
+
 function buildCowWiseMilkPlanFromMessage(message) {
   const text = String(message || '').toLowerCase();
   if (!/\b(milk|milked|gave|give|given|litre|liter|litres|liters|production|produced|yield)\b/.test(text)) return null;
 
   const cow = findMentionedCow(message);
   const litres = parseLitres(message);
-  const entryDate = parseBusinessDate(message);
+  const entryDate = getEntryDateForWrite(message);
   const shift = parseShift(message);
   if (!cow || !litres || !entryDate || !shift) return null;
 
@@ -147,6 +261,126 @@ function buildCowWiseMilkPlanFromMessage(message) {
     expectsConfirmation: false,
     deterministicRepair: true
   };
+}
+
+
+function buildMilkSalePlanFromMessage(message) {
+  const text = String(message || '').toLowerCase();
+  if (!/\b(sold|sell|sale|sales|buyer|customer|milk\s*sale)\b/.test(text)) return null;
+  const buyer = findMentionedBuyer(message);
+  const litres = parseLitres(message);
+  const entryDate = getEntryDateForWrite(message);
+  const shift = parseShift(message) || 'Morning';
+  if (!buyer || !litres || !entryDate) return null;
+  const rate = parseRate(message) || Number(buyer.default_rate || 0);
+  if (!rate) return null;
+  const income = Number((litres * rate).toFixed(2));
+  return {
+    reply: `Added milk sale: ${litres} litres to ${buyer.name} on ${entryDate} ${shift.toLowerCase()} shift at ₹${rate}/L. Income ₹${income}.`,
+    actions: [
+      ensureDailyEntryAction(entryDate),
+      {
+        sql: `INSERT INTO milk_sales (daily_entry_id, buyer_id, litres, rate_per_litre, income, payment_status, entry_shift, notes) SELECT id, ${Number(buyer.id)}, ${litres}, ${rate}, ${income}, 'Paid', ${sqlQuote(shift)}, 'Added by AI assistant' FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
+        purpose: `Insert milk sale row for ${buyer.name} so it appears in Milk sold details.`,
+        requiresConfirmation: false
+      }
+    ],
+    readOnly: false,
+    expectsConfirmation: false,
+    deterministicRepair: true
+  };
+}
+
+function buildFoodExpensePlanFromMessage(message) {
+  const text = String(message || '').toLowerCase();
+  if (!/\b(feed|food|fodder|concentrate|silage|kg|kgs)\b/.test(text)) return null;
+  if (!/\b(expense|cost|paid|bought|buy|add|save|record|used|gave|given)\b/.test(text)) return null;
+  const food = findMentionedFood(message);
+  const cow = findMentionedCow(message);
+  const entryDate = getEntryDateForWrite(message);
+  const shift = parseShift(message) || null;
+  const quantityKg = parseQuantityKg(message) || 0;
+  const typedRate = parseRate(message);
+  const amountFromMessage = parseMoneyAmount(message);
+  if (!food || !entryDate || (!quantityKg && !amountFromMessage)) return null;
+  const snapshot = latestFoodSnapshot(food, entryDate);
+  const unitRate = typedRate || Number(snapshot?.unit_rate || 0);
+  const amount = quantityKg && unitRate ? Number((quantityKg * unitRate).toFixed(2)) : amountFromMessage;
+  if (!amount) return null;
+  const category = findExpenseCategory(message) || db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) LIKE 'feed%' ORDER BY id LIMIT 1").get();
+  return {
+    reply: `Added food expense on ${entryDate}: ${food.name}${cow ? ` for ${cow.name}` : ''}${quantityKg ? `, ${quantityKg} kg` : ''}, amount ₹${amount}.`,
+    actions: [
+      ensureDailyEntryAction(entryDate),
+      {
+        sql: `INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) SELECT id, ${category?.id ? Number(category.id) : 'NULL'}, 'feed', ${cow?.id ? Number(cow.id) : 'NULL'}, ${Number(food.id)}, ${snapshot?.food_price_history_id ? Number(snapshot.food_price_history_id) : 'NULL'}, ${sqlQuote(snapshot?.food_name_snapshot || food.name)}, ${sqlQuote(snapshot?.unit_type_snapshot || food.unit_type || 'kg')}, ${snapshot?.rate_effective_from ? sqlQuote(snapshot.rate_effective_from) : 'NULL'}, ${Number(quantityKg || 0)}, ${Number(unitRate || 0)}, ${Number(amount)}, ${shift ? sqlQuote(shift) : 'NULL'}, ${sqlQuote('Added by AI assistant')}, 'Cash', NULL FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
+        purpose: 'Insert food/feed expense row so it appears in Daily expenses and reports.',
+        requiresConfirmation: false
+      }
+    ],
+    readOnly: false,
+    expectsConfirmation: false,
+    deterministicRepair: true
+  };
+}
+
+function buildCommonExpensePlanFromMessage(message) {
+  const text = String(message || '').toLowerCase();
+  if (!/\b(expense|cost|paid|payment|bill|spent|medicine|medical|transport|repair|labour|labor|electricity|maintenance)\b/.test(text)) return null;
+  if (/\b(feed|food|fodder|concentrate|silage|kg|kgs)\b/.test(text)) return null;
+  const entryDate = getEntryDateForWrite(message);
+  const amount = parseMoneyAmount(message);
+  if (!entryDate || !amount) return null;
+  const category = findExpenseCategory(message) || db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) = 'other expense' LIMIT 1").get();
+  const cow = findMentionedCow(message);
+  const shift = parseShift(message) || null;
+  const description = category?.name ? `${category.name} added by AI assistant` : 'Added by AI assistant';
+  return {
+    reply: `Added ${category?.name || 'expense'} on ${entryDate}${cow ? ` for ${cow.name}` : ''}: ₹${amount}.`,
+    actions: [
+      ensureDailyEntryAction(entryDate),
+      {
+        sql: `INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) SELECT id, ${category?.id ? Number(category.id) : 'NULL'}, 'common', ${cow?.id ? Number(cow.id) : 'NULL'}, NULL, NULL, NULL, NULL, NULL, 0, 0, ${Number(amount)}, ${shift ? sqlQuote(shift) : 'NULL'}, ${sqlQuote(description)}, 'Cash', NULL FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
+        purpose: 'Insert common expense row so it appears in Daily expenses and reports.',
+        requiresConfirmation: false
+      }
+    ],
+    readOnly: false,
+    expectsConfirmation: false,
+    deterministicRepair: true
+  };
+}
+
+function buildDirectMilkPlanFromMessage(message) {
+  const text = String(message || '').toLowerCase();
+  if (!/\b(total\s*milk|milk\s*produced|direct\s*entry|produced)\b/.test(text)) return null;
+  if (findMentionedCow(message)) return null;
+  if (/\b(sold|sale|buyer|expense|cost|paid)\b/.test(text)) return null;
+  const litres = parseLitres(message);
+  const entryDate = getEntryDateForWrite(message);
+  if (!litres || !entryDate) return null;
+  return {
+    reply: `Set direct milk production for ${entryDate} to ${litres} litres.`,
+    actions: [
+      ensureDailyEntryAction(entryDate),
+      {
+        sql: `UPDATE daily_entries SET total_milk_litres = ${litres}, remaining_milk_litres = ${litres} - COALESCE((SELECT SUM(litres) FROM milk_sales WHERE daily_entry_id = daily_entries.id), 0), updated_at = CURRENT_TIMESTAMP WHERE entry_date = ${sqlQuote(entryDate)}`,
+        purpose: 'Update direct total milk production for the daily entry.',
+        requiresConfirmation: false
+      }
+    ],
+    readOnly: false,
+    expectsConfirmation: false,
+    deterministicRepair: true
+  };
+}
+
+function buildDailyEntryPlanFromMessage(message) {
+  return buildCowWiseMilkPlanFromMessage(message)
+    || buildMilkSalePlanFromMessage(message)
+    || buildFoodExpensePlanFromMessage(message)
+    || buildCommonExpensePlanFromMessage(message)
+    || buildDirectMilkPlanFromMessage(message);
 }
 
 function isConfirmationMessage(message) {
@@ -349,14 +583,14 @@ async function handleChat({ message, userId = 'default' }) {
       return { success: true, reply, actions: pending.plan.actions || [], data: { results: summarizeResults(pending.plan, execution) } };
     }
 
-    let plan = await planForMessage(trimmed);
+    let plan = buildDailyEntryPlanFromMessage(trimmed) || await planForMessage(trimmed);
     if (!plan.actions.length) {
       return { success: true, reply: plan.reply || 'I need a clearer database request.', actions: [], data: {} };
     }
 
     const visibilityProblem = validateBusinessPlanForVisibility(trimmed, plan);
     if (visibilityProblem) {
-      const repairedPlan = buildCowWiseMilkPlanFromMessage(trimmed);
+      const repairedPlan = buildDailyEntryPlanFromMessage(trimmed);
       if (repairedPlan) {
         console.warn('[AI DB Plan Repaired]', visibilityProblem, { originalActions: plan.actions, repairedActions: repairedPlan.actions });
         plan = repairedPlan;
@@ -393,4 +627,4 @@ async function handleChat({ message, userId = 'default' }) {
   }
 }
 
-module.exports = { handleChat, OLLAMA_UNAVAILABLE_REPLY, buildCowWiseMilkPlanFromMessage };
+module.exports = { handleChat, OLLAMA_UNAVAILABLE_REPLY, buildDailyEntryPlanFromMessage, buildCowWiseMilkPlanFromMessage };
