@@ -562,6 +562,11 @@ async function executeTool(toolName, args) {
         }).filter((row) => row.previousMilk > 0 || row.currentMilk > 0)
       };
     }
+    case 'getCowsList': {
+      const statusFilter = args.status ? 'WHERE lower(status) = lower(?)' : '';
+      const params = args.status ? [args.status] : [];
+      return db.prepare(`SELECT id, name, breed, age, status FROM cows ${statusFilter} ORDER BY name`).all(...params);
+    }
     case 'getCalvesList': {
       const statusFilter = args.status ? 'WHERE lower(status) = lower(?)' : '';
       const params = args.status ? [args.status] : [];
