@@ -25,14 +25,16 @@ function createAgentRouter({ auth }) {
       if (confirmedAction && (pendingActionIds || pendingActionId)) {
         const ids = pendingActionIds || [pendingActionId].filter(Boolean);
         const results = confirmPendingActions({ pendingActionIds: ids });
-        return res.json({
-          reply: ids.length > 1 ? `Confirmed all ${ids.length} changes. Farm records updated.` : 'Confirmed. I updated the farm records.',
-          needsConfirmation: false,
-          pendingActions: [],
-          toolResults: results.map((r) => ({ tool: 'confirmPendingAction', result: r })),
-          error: null,
-          conversationId: conversationId || null
+        const summary = results.map((r, i) => {
+          const action = r?.action || {};
+          const resultData = r?.result || {};
+          return `${i + 1}. ${action.title || action.type || 'Action'}: ${JSON.stringify(resultData)}`;
+        }).join('\n');
+        const confirmResult = await runAgent({
+          message: `The following pending actions were just confirmed and executed successfully:\n${summary}\n\nSummarize what was done in a friendly way.`,
+          history: history || []
         });
+        return res.json({ ...confirmResult, conversationId: conversationId || null });
       }
 
       if (!message || !String(message).trim()) {
