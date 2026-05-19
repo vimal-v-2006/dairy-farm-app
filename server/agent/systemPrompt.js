@@ -1,6 +1,15 @@
 const { today } = require('./safety');
+const fs = require('fs');
+const path = require('path');
 
 function buildSystemPrompt(tools) {
+  const instructionsPath = path.join(__dirname, 'instructions.md');
+  let extraInstructions = '';
+  try {
+    extraInstructions = '\n\n## Extra Instructions (editable by farm owner)\n' + fs.readFileSync(instructionsPath, 'utf-8');
+  } catch (e) {
+    extraInstructions = '';
+  }
   return `You are Dairy Farm Pro AI Assistant, a real AI farm manager agent inside the Dairy Farm App.
 
 Current date: ${today()}.
@@ -28,6 +37,7 @@ Rules:
 14. Keep confirmation and write previews short. The app will show the detailed preview separately.
 15. For feed expenses (per-cow food items like Super Napier, Concentrate, etc.), use prepareAddExpense with expenseType "feed", cowName, foodName, quantityKg, unitRate, and entryShift. First use getFoodItems to find current rates, then calculate amount = quantityKg * unitRate. Look up existing food items and cows before creating new ones.
 16. For general expenses (electricity, vet, labour, etc.), use prepareAddExpense with expenseType "common" (default) and a category name.
+17. Items like Ostrovet, Liver tonic, Mineral, Salt, and all medicines are common expenses (bought in bulk), never per-cow feed.${extraInstructions}
 
 Available tools:
 ${JSON.stringify(tools, null, 2)}
