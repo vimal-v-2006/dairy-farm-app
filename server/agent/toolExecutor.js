@@ -83,6 +83,18 @@ function getBuyerByName(name) {
   return db.prepare('SELECT * FROM buyers WHERE lower(name) = lower(?) LIMIT 1').get(name);
 }
 
+function getFoodByName(name) {
+  return db.prepare('SELECT * FROM food_items WHERE lower(name) = lower(?) LIMIT 1').get(name);
+}
+
+function getFoodPriceSnapshot(foodId, date) {
+  return db.prepare(`SELECT * FROM food_price_history
+    WHERE food_item_id = ? AND effective_from <= ?
+    ORDER BY effective_from DESC LIMIT 1`).get(foodId, date)
+    || db.prepare('SELECT * FROM food_price_history WHERE food_item_id = ? ORDER BY effective_from DESC LIMIT 1').get(foodId)
+    || null;
+}
+
 function monthlySummary(range) {
   const summary = getSingle(`SELECT COUNT(*) AS totalDays, COALESCE(SUM(total_milk_litres),0) AS milk,
       COALESCE(SUM(total_income),0) AS income, COALESCE(SUM(total_expenses),0) AS expenses,
@@ -123,6 +135,26 @@ function createPending(type, title, payload, preview) {
 
 function executeAddExpense(payload) {
   const date = normalizeDate(payload.date);
+  const expenseType = payload.expenseType || 'common';
+  if (expenseType === 'feed') {
+    const cow = getCowByName(payload.cowName);
+    if (!cow) throw new Error(`Cow not found: ${payload.cowName}`);
+    const food = getFoodByName(payload.foodName);
+    if (!food) throw new Error(`Food item not found: ${payload.foodName}`);
+    const priceSnapshot = getFoodPriceSnapshot(food.id, date);
+    const qty = toNumber(payload.quantityKg);
+    const rate = toNumber(payload.unitRate, priceSnapshot?.unit_rate || 0);
+    if (!(qty > 0)) throw new Error('Quantity must be greater than zero');
+    const amount = toNumber(payload.amount, qty * rate);
+    const tx = db.transaction(() => {
+      const dailyEntryId = getOrCreateDailyEntry(date);
+      db.prepare(`INSERT INTO expenses (daily_entry_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode)
+        VALUES (?, 'feed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Cash')`)
+        .run(dailyEntryId, cow.id, food.id, priceSnapshot?.id || null, priceSnapshot?.food_name_snapshot || food.name, priceSnapshot?.unit_type || food.unit_type || 'kg', priceSnapshot?.effective_from || null, qty, rate, amount, payload.entryShift || '', payload.description || '');
+      return recalcDailyEntry(dailyEntryId);
+    });
+    return tx();
+  }
   const category = getCategoryByName(payload.category);
   if (!category) throw new Error(`Expense category not found: ${payload.category}`);
   const tx = db.transaction(() => {
@@ -211,11 +243,25 @@ function executeAddCalf(payload) {
 function executeAddCalfExpense(payload) {
   const calf = db.prepare('SELECT id FROM calves WHERE lower(name) = lower(?) LIMIT 1').get(payload.calfName);
   if (!calf) throw new Error(`Calf not found: ${payload.calfName}`);
+  const date = normalizeDate(payload.date);
+  const expenseType = payload.expenseType || 'common';
+  if (expenseType === 'food') {
+    const food = getFoodByName(payload.foodName);
+    if (!food) throw new Error(`Food item not found: ${payload.foodName}`);
+    const priceSnapshot = getFoodPriceSnapshot(food.id, date);
+    const qty = toNumber(payload.quantityKg);
+    const rate = toNumber(payload.unitRate, priceSnapshot?.unit_rate || 0);
+    if (!(qty > 0)) throw new Error('Quantity must be greater than zero');
+    const amount = toNumber(payload.amount, qty * rate);
+    db.prepare(`INSERT INTO calf_expenses (calf_id, expense_date, expense_type, amount, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, entry_shift, description, payment_mode)
+      VALUES (?, ?, 'food', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Cash')`)
+      .run(calf.id, date, amount, food.id, priceSnapshot?.id || null, priceSnapshot?.food_name_snapshot || food.name, priceSnapshot?.unit_type || food.unit_type || 'kg', priceSnapshot?.effective_from || null, qty, rate, payload.entryShift || '', payload.description || '');
+    return db.prepare('SELECT * FROM calf_expenses WHERE id = last_insert_rowid()').get();
+  }
   const category = getCategoryByName(payload.category);
   if (!category) throw new Error(`Expense category not found: ${payload.category}`);
-  const date = normalizeDate(payload.date);
   db.prepare(`INSERT INTO calf_expenses (calf_id, expense_date, expense_type, category_id, amount, description, payment_mode)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(calf.id, date, payload.expenseType || 'common', category.id, payload.amount, payload.description || '', payload.paymentMode || 'Cash');
+    VALUES (?, ?, 'common', ?, ?, ?, ?)`).run(calf.id, date, category.id, payload.amount, payload.description || '', payload.paymentMode || 'Cash');
   return db.prepare('SELECT * FROM calf_expenses WHERE id = last_insert_rowid()').get();
 }
 
@@ -579,6 +625,29 @@ async function executeTool(toolName, args) {
     }
     case 'prepareAddExpense': {
       const date = normalizeDate(args.date);
+      const expenseType = args.expenseType || 'common';
+      if (expenseType === 'feed') {
+        const cow = getCowByName(args.cowName);
+        if (!cow) return { error: `Cow "${args.cowName}" was not found. Ask the user to add the cow first or choose an existing cow.`, cows: db.prepare('SELECT name, status FROM cows ORDER BY name').all() };
+        const food = getFoodByName(args.foodName);
+        if (!food) return { error: `Food item "${args.foodName}" was not found. Ask the user to add it first or check the name.`, foods: db.prepare('SELECT name FROM food_items ORDER BY name').all() };
+        const priceSnapshot = getFoodPriceSnapshot(food.id, date);
+        const qty = toNumber(args.quantityKg);
+        const rate = toNumber(args.unitRate, priceSnapshot?.unit_rate || 0);
+        if (!(qty > 0)) return { error: 'Quantity (quantityKg) must be greater than zero for feed expenses.' };
+        const amount = toNumber(args.amount, qty * rate);
+        return createPending('addExpense', 'Add feed expense', { ...args, date, expenseType, cowName: cow.name, foodName: food.name, quantityKg: qty, unitRate: rate, amount, entryShift: args.entryShift || '', paymentMode: 'Cash' }, {
+          Type: 'Feed expense',
+          Cow: cow.name,
+          Food: food.name,
+          Quantity: `${qty} ${priceSnapshot?.unit_type || food.unit_type || 'kg'}`,
+          Rate: formatMoney(rate),
+          Amount: formatMoney(amount),
+          Shift: args.entryShift || '',
+          Date: date,
+          Description: args.description || ''
+        });
+      }
       const category = getCategoryByName(args.category);
       if (!category) return { error: `Expense category "${args.category}" was not found. Ask the user to choose one of the saved categories.`, categories: db.prepare('SELECT name FROM expense_categories ORDER BY name').all() };
       return createPending('addExpense', 'Add expense', { ...args, date, category: category.name, amount: toNumber(args.amount), paymentMode: args.paymentMode || 'Cash' }, {
@@ -648,6 +717,28 @@ async function executeTool(toolName, args) {
     case 'prepareAddCalfExpense': {
       const calf = db.prepare('SELECT id, name FROM calves WHERE lower(name) = lower(?) LIMIT 1').get(args.calfName);
       if (!calf) return { error: `Calf "${args.calfName}" was not found.`, calves: db.prepare('SELECT name FROM calves ORDER BY name').all() };
+      const date = normalizeDate(args.date);
+      const expenseType = args.expenseType || 'common';
+      if (expenseType === 'food') {
+        const food = getFoodByName(args.foodName);
+        if (!food) return { error: `Food item "${args.foodName}" was not found.`, foods: db.prepare('SELECT name FROM food_items ORDER BY name').all() };
+        const priceSnapshot = getFoodPriceSnapshot(food.id, date);
+        const qty = toNumber(args.quantityKg);
+        const rate = toNumber(args.unitRate, priceSnapshot?.unit_rate || 0);
+        if (!(qty > 0)) return { error: 'Quantity (quantityKg) must be greater than zero for feed expenses.' };
+        const amount = toNumber(args.amount, qty * rate);
+        return createPending('addCalfExpense', 'Add calf feed expense', { ...args, date, expenseType, calfName: calf.name, foodName: food.name, quantityKg: qty, unitRate: rate, amount, entryShift: args.entryShift || '', paymentMode: 'Cash' }, {
+          Type: 'Calf feed expense',
+          Calf: calf.name,
+          Food: food.name,
+          Quantity: `${qty} ${priceSnapshot?.unit_type || food.unit_type || 'kg'}`,
+          Rate: formatMoney(rate),
+          Amount: formatMoney(amount),
+          Shift: args.entryShift || '',
+          Date: date,
+          Description: args.description || ''
+        });
+      }
       const category = getCategoryByName(args.category);
       if (!category) return { error: `Expense category "${args.category}" was not found.`, categories: db.prepare('SELECT name FROM expense_categories ORDER BY name').all() };
       return createPending('addCalfExpense', 'Add calf expense', { ...args, calfName: calf.name, category: category.name, amount: toNumber(args.amount), paymentMode: args.paymentMode || 'Cash' }, {
@@ -655,7 +746,7 @@ async function executeTool(toolName, args) {
         Calf: calf.name,
         Category: category.name,
         Amount: formatMoney(args.amount),
-        Date: normalizeDate(args.date),
+        Date: date,
         Description: args.description || '',
         Payment: args.paymentMode || 'Cash'
       });

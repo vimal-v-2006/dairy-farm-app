@@ -33,10 +33,16 @@ const toolSchemas = {
   getCowHistory: z.object({ cowName: z.string().min(1) }),
   prepareAddExpense: z.object({
     date: z.string().optional(),
-    category: z.string().min(1),
+    expenseType: z.string().optional(),
+    category: z.string().optional(),
     amount: z.number().positive(),
     description: z.string().optional(),
-    paymentMode: z.string().optional()
+    paymentMode: z.string().optional(),
+    cowName: z.string().optional(),
+    foodName: z.string().optional(),
+    quantityKg: z.number().min(0).optional(),
+    unitRate: z.number().min(0).optional(),
+    entryShift: z.string().optional()
   }),
   prepareAddMilkEntry: z.object({
     date: z.string().optional(),
@@ -79,11 +85,15 @@ const toolSchemas = {
   prepareAddCalfExpense: z.object({
     date: z.string().optional(),
     calfName: z.string().min(1),
-    category: z.string().min(1),
+    category: z.string().optional(),
     amount: z.number().positive(),
     expenseType: z.string().optional(),
     description: z.string().optional(),
-    paymentMode: z.string().optional()
+    paymentMode: z.string().optional(),
+    foodName: z.string().optional(),
+    quantityKg: z.number().min(0).optional(),
+    unitRate: z.number().min(0).optional(),
+    entryShift: z.string().optional()
   }),
   prepareAddBuyer: z.object({
     name: z.string().min(1),
@@ -177,12 +187,12 @@ const toolDefinitions = [
   { name: 'getInvestmentsList', description: 'Fetch all investments with recovery progress, optionally filtered by status.', parameters: { status: 'optional status like active or finished' } },
   { name: 'getBuyersList', description: 'Fetch all buyers, optionally filtered by active status.', parameters: { active: 'optional boolean' } },
   { name: 'getCowHistory', description: 'Fetch update/change history for a cow by name.', parameters: { cowName: 'existing cow name' } },
-  { name: 'prepareAddExpense', description: 'Prepare a pending expense addition. Does not write until user confirms.', parameters: { date: 'YYYY-MM-DD', category: 'category name', amount: 'number', description: 'optional', paymentMode: 'optional' } },
+  { name: 'prepareAddExpense', description: 'Prepare a pending expense addition. Use expenseType "feed" for per-cow feed expenses with cowName, foodName, quantityKg, unitRate, entryShift. Use expenseType "common" (default) for general expenses with category. Does not write until user confirms.', parameters: { date: 'YYYY-MM-DD', expenseType: '"common" or "feed"', category: 'category name for common expenses', amount: 'number', description: 'optional', paymentMode: 'optional', cowName: 'existing cow name for feed expenses', foodName: 'existing food name for feed expenses', quantityKg: 'number for feed', unitRate: 'number for feed', entryShift: '"Morning" or "Evening" for feed' } },
   { name: 'prepareAddMilkEntry', description: 'Prepare a pending cow milk entry addition or update. Does not write until user confirms.', parameters: { date: 'YYYY-MM-DD', cowName: 'existing cow name', morningLitres: 'number', eveningLitres: 'number', totalLitres: 'number', shift: 'Morning or Evening optional', notes: 'optional' } },
   { name: 'prepareAddMilkSale', description: 'Prepare a pending milk sale addition. Does not write until user confirms.', parameters: { date: 'YYYY-MM-DD', buyerName: 'existing or new buyer name', litres: 'number', ratePerLitre: 'optional number', shift: 'Morning or Evening optional', notes: 'optional' } },
   { name: 'prepareAddCow', description: 'Prepare a pending cow creation. Does not write until user confirms.', parameters: { name: 'cow name', breed: 'optional', age: 'optional', status: 'optional', purchaseDate: 'optional', statusDate: 'optional', purchasePrice: 'optional number', notes: 'optional' } },
   { name: 'prepareAddCalf', description: 'Prepare a pending calf creation. Does not write until user confirms.', parameters: { name: 'calf name', breed: 'optional', birthDate: 'optional', sourceType: 'raised or purchased', expectedLactationDate: 'optional', purchasePrice: 'optional number', paidAmount: 'optional number', status: 'optional', notes: 'optional' } },
-  { name: 'prepareAddCalfExpense', description: 'Prepare a pending calf expense addition. Does not write until user confirms.', parameters: { date: 'YYYY-MM-DD', calfName: 'existing calf name', category: 'category name', amount: 'number', expenseType: 'optional', description: 'optional', paymentMode: 'optional' } },
+  { name: 'prepareAddCalfExpense', description: 'Prepare a pending calf expense addition. Use expenseType "food" for feed expenses with foodName, quantityKg, unitRate, entryShift. Use expenseType "common" for general expenses with category. Does not write until user confirms.', parameters: { date: 'YYYY-MM-DD', calfName: 'existing calf name', category: 'category name for common expenses', amount: 'number', expenseType: '"common" or "food"', description: 'optional', paymentMode: 'optional', foodName: 'existing food name for feed expenses', quantityKg: 'number for feed', unitRate: 'number for feed', entryShift: '"Morning" or "Evening" for feed' } },
   { name: 'prepareAddBuyer', description: 'Prepare a pending buyer creation. Does not write until user confirms.', parameters: { name: 'buyer name', location: 'optional', defaultRate: 'optional number', contact: 'optional', notes: 'optional', active: 'optional boolean' } },
   { name: 'prepareAddFoodItem', description: 'Prepare a pending food/feed item creation. Does not write until user confirms.', parameters: { name: 'food name', purchaseKg: 'optional number', purchaseAmount: 'optional number', unitType: 'kg or other unit', notes: 'optional' } },
   { name: 'prepareAddExpenseCategory', description: 'Prepare a pending expense category creation. Does not write until user confirms.', parameters: { name: 'category name' } },
