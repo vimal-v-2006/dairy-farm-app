@@ -1053,30 +1053,14 @@ async function callOpenAiCompatible({ provider, baseUrl, apiKey, model, messages
   return data.choices?.[0]?.message || { content: 'No response from model.' };
 }
 
-function resolveAgentModelConfig(modelConfig = {}) {
-  const provider = modelConfig.provider || 'local';
-  const defaults = {
-    local: { model: 'client-agent', baseUrl: '', apiKey: '' },
-    ollama: { model: 'llama3.1', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: '' },
-    'google-ai-studio': {
-      model: 'gemini-2.0-flash',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      apiKey: process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY || ''
-    },
-    'openai-compatible': { model: 'gpt-4.1-mini', baseUrl: 'https://api.openai.com/v1', apiKey: '' }
-  };
-  return { provider, ...(defaults[provider] || defaults.local), ...modelConfig };
-}
-
 async function runServerFarmAgent({ message, history = [], modelConfig = {} }) {
-  const resolvedModelConfig = resolveAgentModelConfig(modelConfig);
-  const provider = resolvedModelConfig.provider || 'local';
-  if (provider === 'local' || !resolvedModelConfig.model) return localFarmAgentReply(message);
+  const provider = modelConfig.provider || 'local';
+  if (provider === 'local' || !modelConfig.model) return localFarmAgentReply(message);
 
   const system = `You are Farm Agent inside Milk Business Pro. Behave like a helpful agent with tools. You may analyze data and draft entries. For any database write, first call draft_daily_entry and ask for confirmation. Only call save_daily_entry when the user clearly confirms. Never invent IDs; call list_reference_data if needed. Keep replies casual and concise.`;
   const messages = [{ role: 'system', content: system }, ...history.slice(-12).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content || m.text || '' })), { role: 'user', content: message }];
   const toolCalls = [];
-  let assistant = await callOpenAiCompatible({ provider, baseUrl: resolvedModelConfig.baseUrl, apiKey: resolvedModelConfig.apiKey, model: resolvedModelConfig.model, messages });
+  let assistant = await callOpenAiCompatible({ provider, baseUrl: modelConfig.baseUrl, apiKey: modelConfig.apiKey, model: modelConfig.model, messages });
   messages.push(assistant);
   for (let i = 0; i < 5 && assistant.tool_calls?.length; i += 1) {
     for (const call of assistant.tool_calls) {
@@ -1087,7 +1071,7 @@ async function runServerFarmAgent({ message, history = [], modelConfig = {} }) {
       toolCalls.push({ name, args, result });
       messages.push({ role: 'tool', tool_call_id: call.id, name, content: JSON.stringify(result).slice(0, 12000) });
     }
-    assistant = await callOpenAiCompatible({ provider, baseUrl: resolvedModelConfig.baseUrl, apiKey: resolvedModelConfig.apiKey, model: resolvedModelConfig.model, messages });
+    assistant = await callOpenAiCompatible({ provider, baseUrl: modelConfig.baseUrl, apiKey: modelConfig.apiKey, model: modelConfig.model, messages });
     messages.push(assistant);
   }
   return { reply: assistant.content || 'Done bro.', toolCalls };
@@ -1103,11 +1087,9 @@ app.get('/api/agent/models', auth, async (req, res) => {
       (data.models || []).forEach((model) => models.push({ provider: 'ollama', name: model.name, label: `Ollama: ${model.name}` }));
     }
   } catch {}
-  models.push({ provider: 'google-ai-studio', name: 'gemini-2.0-flash', label: 'Google AI Studio: gemini-2.0-flash' });
-  models.push({ provider: 'google-ai-studio', name: 'gemini-1.5-flash', label: 'Google AI Studio: gemini-1.5-flash' });
   models.push({ provider: 'openai-compatible', name: 'gpt-4.1-mini', label: 'OpenAI-compatible: gpt-4.1-mini' });
   models.push({ provider: 'openai-compatible', name: 'gpt-5', label: 'OpenAI-compatible: gpt-5' });
-  ok(res, { models, note: 'Supports Google AI Studio/Gemini API keys, Ollama locally, OpenAI API, or any OpenAI-compatible proxy.' });
+  ok(res, { models, note: 'ChatGPT Plus/Codex OAuth is not a normal app API. Use API key or an OpenAI-compatible local proxy. Ollama works locally without API key.' });
 });
 
 app.get('/api/agent/sessions', auth, (req, res) => {
