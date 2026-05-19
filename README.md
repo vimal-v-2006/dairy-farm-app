@@ -315,7 +315,7 @@ This allows capital recovery tracking without damaging standard daily business r
 
 The app includes an AI-powered farm assistant that understands natural language and can query or modify your farm data using tools.
 
-> **Important:** You must be **signed in** to your farm account to use the AI assistant. The chat button appears at the bottom-left of the screen after login.
+> **Important:** You must be **signed in** to your farm account to use the AI assistant. The chat button appears at the bottom-left of the screen after login. See [Ollama setup guide](https://ollama.com) for installing the local LLM backend.
 
 - Ask questions like "How much milk did we produce today?" or "Which cow is giving the least milk?"
 - Request actions like "Add an expense for cattle feed" or "Update Bella's status to Sold"
