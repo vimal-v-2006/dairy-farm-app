@@ -645,6 +645,13 @@ ANSWERING COMPLEX QUESTIONS:
 - Always SELECT human-readable column aliases (e.g. SUM(total_litres) AS total_litres).
 - Never return empty actions for a data question — always attempt a SELECT.
 
+MISSING ENTITY HANDLING:
+- If the user references a cow, buyer, or food item that does not exist in the DB, auto-create it first with an INSERT, then proceed with the original request.
+- For a missing cow: INSERT OR IGNORE INTO cows (name, status) VALUES ('<name>', 'Lactating') before using its id.
+- For a missing buyer: INSERT OR IGNORE INTO buyers (name, default_rate, active) VALUES ('<name>', 0, 1) before using its id.
+- After inserting the new entity, use (SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER('<name>') LIMIT 1) as the cow_id in child rows.
+- Always mention in the reply that a new entity was created automatically.
+
 SECURITY AND EXECUTION RULES:
 - The frontend never touches the database. You are inside the backend.
 - Allowed SQL only: SELECT, INSERT, UPDATE, DELETE.
@@ -730,6 +737,91 @@ async function planForMessage(message) {
   return plan;
 }
 
+// ── Cascading entity resolution ────────────────────────────────────────────────
+// Before executing a plan, detect referenced entities (cows, buyers, food items)
+// that don't exist yet and prepend INSERT actions to create them automatically.
+// This lets the user say "Bella gave 10L this morning" without pre-creating Bella.
+
+function resolveMissingEntities(userMessage, plan) {
+  const prependActions = [];
+  const prependReplies = [];
+
+  // ── Auto-create missing cow ──────────────────────────────────────────────
+  const cowActions = (plan.actions || []).filter((a) =>
+    /cow_milk_entries|expenses/i.test(a.sql || '') && /cow_id/i.test(a.sql || '')
+  );
+  if (cowActions.length) {
+    // Extract cow name from message
+    const normalized = String(userMessage || '').toLowerCase();
+    const allCows = db.prepare("SELECT id, name FROM cows WHERE name IS NOT NULL AND TRIM(name) != ''").all();
+    const mentionedCow = allCows.find((c) =>
+      new RegExp(`\\b${String(c.name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(normalized)
+    );
+    // If no cow matched and the plan references a cow_id that looks like a name literal
+    if (!mentionedCow) {
+      // Try to extract a proper noun from message as candidate cow name
+      const nameMatch = userMessage.match(/\b([A-Z][a-z]{2,})\b/);
+      if (nameMatch) {
+        const cowName = nameMatch[1];
+        const exists = db.prepare('SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1').get(cowName);
+        if (!exists) {
+          prependActions.push({
+            sql: `INSERT OR IGNORE INTO cows (name, status) VALUES ('${cowName.replace(/'/g, "''")}', 'Lactating')`,
+            purpose: `Auto-create cow "${cowName}" referenced in user message.`,
+            requiresConfirmation: false
+          });
+          prependReplies.push(`Cow "${cowName}" was not found — created automatically as Lactating.`);
+
+          // Patch plan actions to use subquery for cow_id
+          plan.actions = (plan.actions || []).map((a) => {
+            if (!/cow_id/i.test(a.sql || '')) return a;
+            // Replace numeric cow_id placeholder with subquery if it looks wrong
+            const patched = a.sql.replace(
+              /\bcow_id\s*,\s*(\d+)\b/gi,
+              `cow_id, (SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER('${cowName.replace(/'/g, "''")}') LIMIT 1)`
+            );
+            return { ...a, sql: patched };
+          });
+        }
+      }
+    }
+  }
+
+  // ── Auto-create missing buyer ──────────────────────────────────────────
+  const saleActions = (plan.actions || []).filter((a) => /milk_sales/i.test(a.sql || '') && /INSERT/i.test(a.sql || ''));
+  if (saleActions.length) {
+    const normalized = String(userMessage || '').toLowerCase();
+    const allBuyers = db.prepare("SELECT id, name FROM buyers WHERE name IS NOT NULL AND TRIM(name) != '' AND COALESCE(active,1)=1").all();
+    const mentionedBuyer = allBuyers.find((b) =>
+      new RegExp(`\\b${String(b.name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(normalized)
+    );
+    if (!mentionedBuyer) {
+      const nameMatch = userMessage.match(/\b([A-Z][a-z]{2,})\b/);
+      if (nameMatch) {
+        const buyerName = nameMatch[1];
+        const exists = db.prepare('SELECT id FROM buyers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND COALESCE(active,1)=1 LIMIT 1').get(buyerName);
+        if (!exists) {
+          prependActions.push({
+            sql: `INSERT OR IGNORE INTO buyers (name, default_rate, active) VALUES ('${buyerName.replace(/'/g, "''")}', 0, 1)`,
+            purpose: `Auto-create buyer "${buyerName}" referenced in user message.`,
+            requiresConfirmation: false
+          });
+          prependReplies.push(`Buyer "${buyerName}" was not found — created automatically.`);
+        }
+      }
+    }
+  }
+
+  if (prependActions.length) {
+    plan.actions = [...prependActions, ...plan.actions];
+    if (prependReplies.length) {
+      plan.reply = [...prependReplies, plan.reply || ''].filter(Boolean).join(' ');
+    }
+  }
+
+  return plan;
+}
+
 async function handleChat({ message, userId = 'default' }) {
   const trimmed = String(message || '').trim();
   if (!trimmed) return { success: true, reply: 'Please type a question or database request.', actions: [], data: {} };
@@ -748,6 +840,9 @@ async function handleChat({ message, userId = 'default' }) {
     if (!plan.actions.length) {
       return { success: true, reply: plan.reply || 'I need a clearer database request.', actions: [], data: {} };
     }
+
+    // Auto-create missing referenced entities (cows, buyers) before execution
+    plan = resolveMissingEntities(trimmed, plan);
 
     const visibilityProblem = validateBusinessPlanForVisibility(trimmed, plan);
     if (visibilityProblem) {
