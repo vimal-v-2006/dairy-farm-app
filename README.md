@@ -151,15 +151,23 @@ This app is not a full ERP or multi-company accounting suite. It is a focused da
 - Move completed items into a finished section
 - Preserve existing income/expense/profit analysis without modifying past records
 
-### 10. AI Database Assistant
+### 10. AI Database Assistant (Generative UI)
 - Natural-language chat panel in the React frontend
 - Frontend only sends the typed message to `POST /api/ai/chat`
 - Backend AI agent uses local Ollama only; no OpenAI, Anthropic, or cloud AI API
-- Schema inspector reads current SQLite tables, columns, and relationship hints
+- Schema inspector reads current SQLite tables, columns, and relationship hints at request time
 - Generic DB executor validates SQL before running it against the existing backend database connection
-- Supports database reading/analysis and safe inserts/updates/deletes through one controlled intelligence layer
-- Blocks dangerous SQL such as DROP, ALTER, CREATE, VACUUM, ATTACH, PRAGMA, and multi-statement queries
-- Blocks UPDATE/DELETE without WHERE; DELETE requests require confirmation
+- Supports any question about the database — totals, averages, rankings, trends, monthly summaries, profit analysis, cow-wise production, buyer analysis, date-range queries — Ollama always generates a SELECT
+- Supports safe inserts, updates, and deletes through one controlled intelligence layer
+- **Generative UI responses**: AI results auto-render as the best widget based on data shape:
+  - Metric cards for single-row multi-column results (totals, summaries)
+  - Bar charts for name + value data (cow rankings, buyer splits)
+  - Line charts for time-series data (daily trends, monthly profit)
+  - Scrollable tables for multi-row multi-column results
+  - Bullet lists for simple enumerations
+- **Cascading entity creation**: if the user references a cow or buyer that does not exist yet, the AI automatically creates it before saving the related entry — no need to pre-create entities manually
+- Blocks dangerous SQL: DROP, ALTER, CREATE, VACUUM, ATTACH, PRAGMA, multi-statement queries
+- Blocks UPDATE/DELETE without WHERE; DELETE requests require user confirmation
 - If Ollama or the configured model is unavailable, the app returns a friendly error instead of crashing
 
 ---
@@ -315,32 +323,39 @@ The app supports export features using:
 This makes the app useful not just for internal entry, but also for sharing records outside the app.
 
 ### 11. AI Database Assistant workflow
-The AI Assistant is not a hardcoded command chatbot. It is a backend database assistant with controlled generic DB access.
+The AI Assistant is not a hardcoded command chatbot. It is a backend database assistant with controlled generic DB access and generative UI rendering.
 
 Flow:
 ```text
 Client Chat UI
 → POST /api/ai/chat
 → AI Agent Backend
-→ Schema Inspector
-→ SQL Safety Validator / DB Executor
-→ SQLite Database
+  → Missing Entity Resolver (auto-create cows/buyers if needed)
+  → Schema Inspector
+  → Ollama (local LLM — generates SQL plan as JSON)
+  → SQL Safety Validator
+  → DB Executor
+  → UI Hint Detector (metrics / bar_chart / line_chart / table / list)
+→ Response with reply text + enriched data results
+→ GenUIMessage renders the best widget automatically
 ```
 
 Important behavior:
 - The React client does not connect to SQLite and does not receive database credentials.
-- The backend inspects the current schema at request time, including table names, columns, foreign keys, and relationship hints.
-- The backend sends the schema context and the user request to Ollama through `POST /api/chat`.
+- The backend inspects the current schema at request time.
+- The backend sends schema context and the user request to Ollama through `POST /api/chat`.
 - Ollama returns a JSON plan containing generic SQL actions.
 - The backend validates the SQL before execution.
-- Read-only questions run SELECT/WITH SELECT queries.
+- Complex analytics questions (totals, rankings, trends, monthly summaries) always generate a SELECT — the AI never refuses a data question.
+- Read-only questions run SELECT queries and return rich UI components.
 - Safe inserts and precise updates can execute directly.
 - Deletes and dangerous/ambiguous actions require confirmation or are blocked.
-- AI-generated SQL is logged in the server console for debugging as `[AI DB SQL] ...`.
+- AI-generated SQL is logged in the server console as `[AI DB SQL] ...`.
+- If a referenced cow or buyer does not exist, it is auto-created before the related entry is saved.
 
-If Ollama is not running, the model is still downloading, or the configured model is missing, the app responds with:
+If Ollama is not running or the configured model is missing, the app responds with:
 ```text
-AI model is not available right now. Please check Ollama and the gemma4:31b-cloud model.
+AI model is not available right now. Please check Ollama and the model.
 ```
 
 ### 12. Why this architecture fits this use case
@@ -655,14 +670,30 @@ It does **not**:
 ---
 
 ## 9. AI Assistant
-Use **AI Assistant** to ask natural-language questions or request safe database changes.
+Use **AI Assistant** to ask any natural-language question or request safe database changes.
 
-Examples:
-- Show this month total milk production
+**Analytics and reporting questions:**
+- Show total milk production this month
 - Which cow produced the most milk this week?
+- What is my profit and loss for last 30 days?
+- Show monthly income and expense trend
+- Which buyer bought the most milk?
+- What are my top 5 expenses this month?
+
+**Data entry through chat:**
+- Bella gave 12 litres this morning (auto-creates Bella if not in DB)
+- Sold 20 litres to Ravi at ₹45 today morning
 - Add ₹350 medicine expense for today
+- Record 8 kg feed for cow Lakshmi today at ₹22/kg
+
+**Updates and corrections:**
 - Change yesterday feed expense from 500 to 650
+- Update Bella's status to Dry
+
+**Deletes (require confirmation):**
 - Delete the wrong expense I added today for ₹100
+
+Results auto-render as metric cards, charts, tables, or lists based on what the data looks like.
 
 The assistant is backend-only for database access. The chat UI does not directly connect to SQLite. Dangerous deletes require confirmation, and unsafe SQL is blocked by the server.
 
@@ -784,6 +815,20 @@ Potential future enhancements:
 - mobile-friendly data entry improvements
 - printable invoice/sale slip workflow
 - advanced analytics for per-cow profitability
+- AI conversation history / multi-turn context
+
+---
+
+## Computation Notes (for developers)
+
+Key computation rules enforced server-side:
+
+- **Milk total in cow-wise mode** — `total_milk_litres` is recomputed from `SUM(cow_milk_entries.total_litres)` on the server, not trusted from the client payload. This prevents stale values when cow entries are edited.
+- **Zero-milk dry day** — `refreshDailyTotals` correctly handles days when all cows give 0L. It checks whether any `cow_milk_entries` rows exist first; only uses the SUM when rows exist, preserves the manual total otherwise.
+- **Income calculation** — `milk_sales.income = litres × rate_per_litre` rounded to 2 decimal places on the server.
+- **Remaining milk** — `remaining_milk_litres = total_milk_litres - SUM(milk_sales.litres)`, rounded to 2dp.
+- **Profit** — `profit = total_income - total_expenses`, rounded to 2dp.
+- **AI inserts refresh totals** — after any AI-generated INSERT into `cow_milk_entries`, `milk_sales`, or `expenses`, `refreshDailyTotals` is triggered automatically for the affected daily entry.
 
 ---
 
