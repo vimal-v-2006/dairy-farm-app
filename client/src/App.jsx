@@ -2229,7 +2229,7 @@ function AIAssistant({ onFarmDataChanged }) {
   ]);
   const [busy, setBusy] = useState(false);
   const [busySeconds, setBusySeconds] = useState(0);
-  const [pendingAction, setPendingAction] = useState(null);
+  const [pendingActions, setPendingActions] = useState([]);
   const [lastToolResults, setLastToolResults] = useState([]);
   const messagesEndRef = useRef(null);
 
@@ -2239,7 +2239,7 @@ function AIAssistant({ onFarmDataChanged }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, busy, pendingAction]);
+  }, [messages, busy, pendingActions]);
 
   useEffect(() => {
     if (!busy) {
@@ -2276,7 +2276,7 @@ function AIAssistant({ onFarmDataChanged }) {
         body: JSON.stringify({ message: text, history })
       });
       setMessages((prev) => [...prev, { role: 'assistant', text: data.reply || 'I could not produce a response.' }]);
-      setPendingAction(data.needsConfirmation ? data.pendingAction : null);
+      setPendingActions(data.needsConfirmation ? (data.pendingActions || (data.pendingAction ? [data.pendingAction] : [])) : []);
       setLastToolResults(data.toolResults || []);
     } catch (error) {
       setMessages((prev) => [...prev, { role: 'assistant', text: error.message || 'AI model is not ready yet. Please check Ollama download or model availability.', error: true }]);
@@ -2286,15 +2286,16 @@ function AIAssistant({ onFarmDataChanged }) {
   }
 
   async function confirmPending() {
-    if (!pendingAction || busy) return;
+    if (!pendingActions.length || busy) return;
     setBusy(true);
     try {
+      const ids = pendingActions.map((a) => a.id);
       const data = await api('/api/agent/chat', {
         method: 'POST',
-        body: JSON.stringify({ confirmedAction: true, pendingActionId: pendingAction.id })
+        body: JSON.stringify({ confirmedAction: true, pendingActionIds: ids })
       });
       setMessages((prev) => [...prev, { role: 'assistant', text: data.reply || 'Confirmed.' }]);
-      setPendingAction(null);
+      setPendingActions([]);
       setLastToolResults(data.toolResults || []);
       await onFarmDataChanged?.();
     } catch (error) {
@@ -2305,15 +2306,16 @@ function AIAssistant({ onFarmDataChanged }) {
   }
 
   async function cancelPending() {
-    if (!pendingAction || busy) return;
+    if (!pendingActions.length || busy) return;
     setBusy(true);
     try {
+      const ids = pendingActions.map((a) => a.id);
       const data = await api('/api/agent/chat', {
         method: 'POST',
-        body: JSON.stringify({ cancelledAction: true, pendingActionId: pendingAction.id })
+        body: JSON.stringify({ cancelledAction: true, pendingActionIds: ids })
       });
       setMessages((prev) => [...prev, { role: 'assistant', text: data.reply || 'Cancelled.' }]);
-      setPendingAction(null);
+      setPendingActions([]);
     } catch (error) {
       setMessages((prev) => [...prev, { role: 'assistant', text: error.message || 'Could not cancel that action.', error: true }]);
     } finally {
@@ -2371,20 +2373,27 @@ function AIAssistant({ onFarmDataChanged }) {
               <div ref={messagesEndRef} />
             </div>
 
-            {pendingAction && (
+            {pendingActions.length > 0 && (
               <div className="border-t border-slate-200/70 bg-amber-50/90 px-4 py-3 dark:border-white/10 dark:bg-amber-500/10">
-                <div className="text-xs font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">Confirmation preview</div>
-                <div className="mt-2 grid gap-1.5 text-sm text-slate-800 dark:text-slate-100">
-                  {Object.entries(pendingAction.preview || {}).map(([key, value]) => (
-                    <div key={key} className="grid grid-cols-[108px_1fr] gap-2">
-                      <span className="font-semibold text-slate-500 dark:text-slate-400">{key}</span>
-                      <span>{value || '-'}</span>
+                <div className="text-xs font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                  {pendingActions.length > 1 ? `${pendingActions.length} pending changes` : 'Confirmation preview'}
+                </div>
+                <div className="mt-2 max-h-40 space-y-2 overflow-y-auto text-sm text-slate-800 dark:text-slate-100">
+                  {pendingActions.map((action, i) => (
+                    <div key={action.id} className="rounded-xl border border-amber-200 bg-amber-100/60 p-2 dark:border-amber-400/20 dark:bg-amber-500/10">
+                      <div className="mb-1 text-xs font-bold uppercase text-amber-600 dark:text-amber-300">{action.title || action.type}</div>
+                      {Object.entries(action.preview || {}).map(([key, value]) => (
+                        <div key={key} className="grid grid-cols-[100px_1fr] gap-1 text-xs">
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">{key}</span>
+                          <span>{value || '-'}</span>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button onClick={confirmPending} disabled={busy} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"><CheckCircle2 size={16} />Confirm</button>
-                  <button onClick={cancelPending} disabled={busy} className="flex-1 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-60 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200">Cancel</button>
+                  <button onClick={confirmPending} disabled={busy} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"><CheckCircle2 size={16} />{pendingActions.length > 1 ? `Confirm all (${pendingActions.length})` : 'Confirm'}</button>
+                  <button onClick={cancelPending} disabled={busy} className="flex-1 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-60 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200">Cancel all</button>
                 </div>
               </div>
             )}

@@ -42,6 +42,7 @@ function normalizeHistory(history = []) {
 
 async function runAgent({ message, history = [] }) {
   const toolResults = [];
+  const pendingActions = [];
   const messages = [
     { role: 'system', content: buildSystemPrompt(toolDefinitions) },
     ...normalizeHistory(history),
@@ -54,10 +55,19 @@ async function runAgent({ message, history = [] }) {
       const parsed = await parseModelJson(messages, content);
 
       if (parsed.type === 'final') {
+        if (pendingActions.length > 0) {
+          return {
+            reply: parsed.answer || 'I have prepared the changes. Please confirm to save them.',
+            needsConfirmation: true,
+            pendingActions,
+            toolResults,
+            error: null
+          };
+        }
         return {
           reply: parsed.answer || '',
           needsConfirmation: false,
-          pendingAction: null,
+          pendingActions: [],
           toolResults,
           error: null
         };
@@ -72,23 +82,30 @@ async function runAgent({ message, history = [] }) {
       toolResults.push({ tool: parsed.tool, arguments: args, result: toolResult.result || toolResult });
 
       if (toolResult.needsConfirmation) {
-        return {
-          reply: `I found this entry. Please confirm before I write it to the database.`,
-          needsConfirmation: true,
-          pendingAction: toolResult.pendingAction,
-          toolResults,
-          error: null
-        };
+        pendingActions.push(toolResult.pendingAction);
+        messages.push({ role: 'assistant', content: JSON.stringify(parsed) });
+        messages.push({ role: 'user', content: `Tool result for ${parsed.tool}: ${JSON.stringify(toolResult)}. You may continue preparing more actions or give a final answer.` });
+        continue;
       }
 
       messages.push({ role: 'assistant', content: JSON.stringify(parsed) });
       messages.push({ role: 'user', content: `Tool result for ${parsed.tool}: ${JSON.stringify(toolResult)}` });
     }
 
+    if (pendingActions.length > 0) {
+      return {
+        reply: `I have prepared ${pendingActions.length} change(s). Please review and confirm.`,
+        needsConfirmation: true,
+        pendingActions,
+        toolResults,
+        error: null
+      };
+    }
+
     return {
       reply: 'I checked the data, but this needs more steps than I can safely run in one request. Please ask for a narrower report.',
       needsConfirmation: false,
-      pendingAction: null,
+      pendingActions: [],
       toolResults,
       error: null
     };
@@ -98,7 +115,7 @@ async function runAgent({ message, history = [] }) {
     return {
       reply: isOllamaIssue ? FALLBACK_MESSAGE : (error.message || 'AI agent failed safely.'),
       needsConfirmation: false,
-      pendingAction: null,
+      pendingActions: [],
       toolResults,
       error: isOllamaIssue ? 'OLLAMA_NOT_READY' : 'AGENT_ERROR'
     };

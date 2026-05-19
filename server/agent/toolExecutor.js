@@ -392,6 +392,14 @@ function cancelPendingAction({ pendingActionId }) {
   return { cancelled: true, action: pending || null };
 }
 
+function confirmPendingActions({ pendingActionIds }) {
+  return pendingActionIds.map((id) => confirmPendingAction({ pendingActionId: id }));
+}
+
+function cancelPendingActions({ pendingActionIds }) {
+  return pendingActionIds.map((id) => cancelPendingAction({ pendingActionId: id }));
+}
+
 async function executeTool(toolName, args) {
   switch (toolName) {
     case 'getFarmDashboardData': {
@@ -779,5 +787,7 @@ async function executeTool(toolName, args) {
 module.exports = {
   cancelPendingAction,
   confirmPendingAction,
+  confirmPendingActions,
+  cancelPendingActions,
   executeTool
 };
