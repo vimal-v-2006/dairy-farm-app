@@ -27,6 +27,128 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function sqlQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function currentYear() {
+  return new Date().getFullYear();
+}
+
+function parseBusinessDate(message) {
+  const text = String(message || '').toLowerCase();
+  const today = new Date(todayIsoDate());
+  if (/\btoday\b/.test(text)) return todayIsoDate();
+  if (/\byesterday\b/.test(text)) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - 1);
+    return date.toISOString().slice(0, 10);
+  }
+
+  const months = {
+    jan: 1, january: 1,
+    feb: 2, february: 2,
+    mar: 3, march: 3,
+    apr: 4, april: 4,
+    may: 5,
+    jun: 6, june: 6,
+    jul: 7, july: 7,
+    aug: 8, august: 8,
+    sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10,
+    nov: 11, november: 11,
+    dec: 12, december: 12
+  };
+  const monthNames = Object.keys(months).join('|');
+  let match = text.match(new RegExp(`\\b(${monthNames})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b`, 'i'));
+  if (match) {
+    const year = Number(match[3] || currentYear());
+    const month = months[match[1].toLowerCase()];
+    const day = Number(match[2]);
+    if (day >= 1 && day <= 31) return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  match = text.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthNames})(?:,?\\s+(\\d{4}))?\\b`, 'i'));
+  if (match) {
+    const year = Number(match[3] || currentYear());
+    const month = months[match[2].toLowerCase()];
+    const day = Number(match[1]);
+    if (day >= 1 && day <= 31) return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  match = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (match) return `${match[1]}-${String(Number(match[2])).padStart(2, '0')}-${String(Number(match[3])).padStart(2, '0')}`;
+  return null;
+}
+
+function parseShift(message) {
+  const text = String(message || '').toLowerCase();
+  if (/\b(morning|am)\b/.test(text)) return 'Morning';
+  if (/\b(evening|night|pm)\b/.test(text)) return 'Evening';
+  return null;
+}
+
+function parseLitres(message) {
+  const text = String(message || '').toLowerCase();
+  const match = text.match(/\b(\d+(?:\.\d+)?)\s*(?:l|ltr|ltrs|litre|litres|liter|liters)\b/);
+  if (!match) return null;
+  const litres = Number(match[1]);
+  return Number.isFinite(litres) && litres > 0 ? litres : null;
+}
+
+function findMentionedCow(message) {
+  const normalized = String(message || '').toLowerCase();
+  const cows = db.prepare("SELECT id, name FROM cows WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY LENGTH(name) DESC").all();
+  return cows.find((cow) => new RegExp(`\\b${escapeRegex(String(cow.name).toLowerCase())}\\b`).test(normalized)) || null;
+}
+
+function buildCowWiseMilkPlanFromMessage(message) {
+  const text = String(message || '').toLowerCase();
+  if (!/\b(milk|milked|gave|give|given|litre|liter|litres|liters|production|produced|yield)\b/.test(text)) return null;
+
+  const cow = findMentionedCow(message);
+  const litres = parseLitres(message);
+  const entryDate = parseBusinessDate(message);
+  const shift = parseShift(message);
+  if (!cow || !litres || !entryDate || !shift) return null;
+
+  const morningLitres = shift === 'Morning' ? litres : 0;
+  const eveningLitres = shift === 'Evening' ? litres : 0;
+  const dailyEntry = db.prepare('SELECT id FROM daily_entries WHERE entry_date = ?').get(entryDate);
+  const existing = dailyEntry
+    ? db.prepare('SELECT id FROM cow_milk_entries WHERE daily_entry_id = ? AND cow_id = ? AND LOWER(COALESCE(entry_shift, ?)) = LOWER(?) LIMIT 1')
+      .get(dailyEntry.id, cow.id, shift, shift)
+    : null;
+
+  const actions = [
+    {
+      sql: `INSERT OR IGNORE INTO daily_entries (entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes) VALUES (${sqlQuote(entryDate)}, 0, 0, 0, 0, 0, 'Created by AI assistant')`,
+      purpose: 'Ensure the daily parent row exists before saving cow-wise milk production.',
+      requiresConfirmation: false
+    }
+  ];
+
+  if (existing?.id) {
+    actions.push({
+      sql: `UPDATE cow_milk_entries SET morning_litres = ${morningLitres}, evening_litres = ${eveningLitres}, total_litres = ${litres}, entry_shift = ${sqlQuote(shift)}, status = 'Milked', notes = 'Updated by AI assistant' WHERE id = ${Number(existing.id)}`,
+      purpose: `Update the existing ${shift.toLowerCase()} cow-wise milk row for ${cow.name} on ${entryDate}.`,
+      requiresConfirmation: false
+    });
+  } else {
+    actions.push({
+      sql: `INSERT INTO cow_milk_entries (daily_entry_id, cow_id, morning_litres, evening_litres, total_litres, entry_shift, status, notes) SELECT id, ${Number(cow.id)}, ${morningLitres}, ${eveningLitres}, ${litres}, ${sqlQuote(shift)}, 'Milked', 'Added by AI assistant' FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
+      purpose: `Insert cow-wise milk production for ${cow.name} on ${entryDate}.`,
+      requiresConfirmation: false
+    });
+  }
+
+  return {
+    reply: `${existing?.id ? 'Updated' : 'Added'} ${litres} litres for ${cow.name} on ${entryDate} ${shift.toLowerCase()} shift.`,
+    actions,
+    readOnly: false,
+    expectsConfirmation: false,
+    deterministicRepair: true
+  };
+}
+
 function isConfirmationMessage(message) {
   return /^(yes|y|confirm|confirmed|ok|okay|do it|execute|delete it|proceed)$/i.test(String(message || '').trim());
 }
@@ -227,15 +349,21 @@ async function handleChat({ message, userId = 'default' }) {
       return { success: true, reply, actions: pending.plan.actions || [], data: { results: summarizeResults(pending.plan, execution) } };
     }
 
-    const plan = await planForMessage(trimmed);
+    let plan = await planForMessage(trimmed);
     if (!plan.actions.length) {
       return { success: true, reply: plan.reply || 'I need a clearer database request.', actions: [], data: {} };
     }
 
     const visibilityProblem = validateBusinessPlanForVisibility(trimmed, plan);
     if (visibilityProblem) {
-      console.warn('[AI DB Plan Blocked]', visibilityProblem, plan.actions);
-      return { success: true, reply: visibilityProblem, actions: [], data: { blockedPlan: true } };
+      const repairedPlan = buildCowWiseMilkPlanFromMessage(trimmed);
+      if (repairedPlan) {
+        console.warn('[AI DB Plan Repaired]', visibilityProblem, { originalActions: plan.actions, repairedActions: repairedPlan.actions });
+        plan = repairedPlan;
+      } else {
+        console.warn('[AI DB Plan Blocked]', visibilityProblem, plan.actions);
+        return { success: true, reply: visibilityProblem, actions: [], data: { blockedPlan: true } };
+      }
     }
 
     // Validate before saving/executing so unsafe plans fail closed.
@@ -253,7 +381,7 @@ async function handleChat({ message, userId = 'default' }) {
     }
 
     const execution = executePlan(plan);
-    const reply = await makeReplyFromResults(trimmed, plan, execution);
+    const reply = plan.deterministicRepair ? plan.reply : await makeReplyFromResults(trimmed, plan, execution);
     return { success: true, reply, actions: plan.actions, data: { results: summarizeResults(plan, execution) } };
   } catch (err) {
     const messageText = String(err.message || err);
@@ -265,4 +393,4 @@ async function handleChat({ message, userId = 'default' }) {
   }
 }
 
-module.exports = { handleChat, OLLAMA_UNAVAILABLE_REPLY };
+module.exports = { handleChat, OLLAMA_UNAVAILABLE_REPLY, buildCowWiseMilkPlanFromMessage };
