@@ -20,6 +20,39 @@ const nav = [
 ];
 
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
+
+function AiMessageContent({ text }) {
+  const renderInlineMarkdown = (value) => {
+    const parts = String(value || '').split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={index} className="font-bold">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  };
+
+  const lines = String(text || '').split('\n');
+
+  return (
+    <div className="space-y-2 leading-relaxed">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={index} className="h-1" />;
+        if (/^[-*]\s+/.test(trimmed)) {
+          return (
+            <div key={index} className="flex gap-2">
+              <span className="mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
+              <span>{renderInlineMarkdown(trimmed.replace(/^[-*]\s+/, ''))}</span>
+            </div>
+          );
+        }
+        return <div key={index}>{renderInlineMarkdown(line)}</div>;
+      })}
+    </div>
+  );
+}
+
 const paymentModeOptions = ['Cash', 'GPay', 'PhonePe', 'Paytm', 'Bank Transfer', 'Other Online', 'Other', 'Nothing'];
 const shiftOptions = ['Morning', 'Evening'];
 const remainingMilkOptions = ['Home Use', 'Bonus Quantity', 'Meeting Use', 'Spoiled', 'Carried Forward', 'Mixed / Other'];
@@ -1229,7 +1262,7 @@ function App() {
                     {aiMessages.map((item, index) => (
                       <div key={`${item.role}-${index}`} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[86%] rounded-3xl px-4 py-3 text-sm shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'border border-white/20 bg-white/90 text-slate-900 dark:bg-slate-800 dark:text-white'}`}>
-                          <div className="whitespace-pre-wrap leading-relaxed">{item.content}</div>
+                          <AiMessageContent text={item.content} />
                           {item.meta && <div className="mt-2 text-xs font-bold text-amber-600 dark:text-amber-300">{item.meta}</div>}
                         </div>
                       </div>

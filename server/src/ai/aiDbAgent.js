@@ -70,6 +70,7 @@ SECURITY AND EXECUTION RULES:
 - For cow milk entries: total_litres should be the entered total, or morning_litres + evening_litres.
 - Keep SQL concise and use SQLite date functions when helpful.
 - Never expose secrets, database paths, JWTs, or password hashes.
+- User-facing reply text must be plain text only: no markdown, no **bold**, no headings, no code fences.
 
 Return JSON with this exact shape:
 {
@@ -119,7 +120,7 @@ function summarizeResults(plan, execution) {
 async function makeReplyFromResults(userMessage, plan, execution) {
   const schemaContext = buildSchemaContext();
   const resultSummary = summarizeResults(plan, execution);
-  const system = `You convert database execution results into a concise friendly answer for the dairy farm app user. Return ONLY JSON: {"reply":"..."}. Do not mention SQL unless needed. Use rupee symbol for money when relevant.`;
+  const system = `You convert database execution results into a concise friendly answer for the dairy farm app user. Return ONLY JSON: {"reply":"..."}. Do not mention SQL unless needed. Use rupee symbol for money when relevant. Write plain text only: no markdown, no **bold**, no headings, no code fences.`;
   const content = await callOllama([
     { role: 'system', content: system },
     { role: 'user', content: JSON.stringify({ userMessage, schemaContext, planReply: plan.reply, results: resultSummary }).slice(0, 20000) }
