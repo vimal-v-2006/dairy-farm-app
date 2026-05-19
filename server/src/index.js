@@ -826,6 +826,308 @@ app.delete('/api/account', auth, (req, res) => {
   ok(res, { message: 'Account and all data deleted' });
 });
 
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function findByNameOrId(rows, value) {
+  if (!value && value !== 0) return null;
+  const raw = String(value).trim().toLowerCase();
+  return rows.find((row) => String(row.id) === raw) || rows.find((row) => String(row.name || '').trim().toLowerCase() === raw) || rows.find((row) => String(row.name || '').toLowerCase().includes(raw));
+}
+
+function getAgentReferenceData() {
+  return {
+    cows: db.prepare('SELECT * FROM cows ORDER BY status ASC, name ASC').all(),
+    buyers: db.prepare('SELECT * FROM buyers ORDER BY active DESC, name ASC').all(),
+    categories: db.prepare('SELECT * FROM expense_categories ORDER BY is_default DESC, name ASC').all(),
+    foods: getFoodsWithHistory()
+  };
+}
+
+function saveDailyEntryPayload(payload) {
+  const { entry_date, total_milk_litres, notes, cowEntries = [], milkSales = [], expenses = [], remaining_milk_usage } = payload;
+  if (!isIsoDate(entry_date)) throw new Error('Entry date must be YYYY-MM-DD');
+  const totalMilk = finiteNumber(total_milk_litres, 0);
+  if (totalMilk < 0 || totalMilk > 10000) throw new Error('Milk litres looks invalid');
+
+  const tx = db.transaction(() => {
+    const mergedExpenses = mergeExpenseRows(expenses);
+    const totalIncome = milkSales.reduce((sum, item) => sum + finiteNumber(item.litres) * finiteNumber(item.rate_per_litre), 0);
+    const totalExpenses = mergedExpenses.reduce((sum, item) => sum + finiteNumber(item.amount), 0);
+    const sold = milkSales.reduce((sum, item) => sum + finiteNumber(item.litres), 0);
+    const remaining = totalMilk - sold;
+    const profit = totalIncome - totalExpenses;
+
+    const existing = getSingleValue('SELECT id FROM daily_entries WHERE entry_date = ?', [entry_date]);
+    let dailyEntryId;
+    if (existing) {
+      dailyEntryId = existing.id;
+      db.prepare(`UPDATE daily_entries SET total_milk_litres=?, remaining_milk_litres=?, total_income=?, total_expenses=?, profit=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+        .run(totalMilk, remaining, totalIncome, totalExpenses, profit, [notes, remaining_milk_usage].filter(Boolean).join(' | '), dailyEntryId);
+      db.prepare('DELETE FROM cow_milk_entries WHERE daily_entry_id=?').run(dailyEntryId);
+      db.prepare('DELETE FROM milk_sales WHERE daily_entry_id=?').run(dailyEntryId);
+      db.prepare('DELETE FROM expenses WHERE daily_entry_id=?').run(dailyEntryId);
+    } else {
+      const info = db.prepare(`INSERT INTO daily_entries (entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(entry_date, totalMilk, remaining, totalIncome, totalExpenses, profit, [notes, remaining_milk_usage].filter(Boolean).join(' | '));
+      dailyEntryId = info.lastInsertRowid;
+    }
+
+    const insertCow = db.prepare('INSERT INTO cow_milk_entries (daily_entry_id, cow_id, morning_litres, evening_litres, total_litres, entry_shift, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    cowEntries.forEach((item) => {
+      const totalLitres = finiteNumber(item.total_litres, 0);
+      const shift = item.entry_shift || '';
+      const morningLitres = shift === 'Evening' ? 0 : (totalLitres || finiteNumber(item.morning_litres, 0));
+      const eveningLitres = shift === 'Evening' ? (totalLitres || finiteNumber(item.evening_litres, 0)) : (totalLitres ? 0 : finiteNumber(item.evening_litres, 0));
+      if (!item.cow_id || (morningLitres + eveningLitres) <= 0) return;
+      insertCow.run(dailyEntryId, item.cow_id, morningLitres, eveningLitres, totalLitres || (morningLitres + eveningLitres), shift || null, item.status || 'Recorded', item.notes || '');
+    });
+
+    const insertSale = db.prepare('INSERT INTO milk_sales (daily_entry_id, buyer_id, litres, rate_per_litre, income, payment_status, entry_shift, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    milkSales.forEach((item) => {
+      const litres = finiteNumber(item.litres, 0);
+      const rate = finiteNumber(item.rate_per_litre, 0);
+      if (litres <= 0) return;
+      insertSale.run(dailyEntryId, item.buyer_id || null, litres, rate, litres * rate, 'Paid', item.entry_shift || 'Morning', item.notes || '');
+    });
+
+    const insertExpense = db.prepare('INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    mergedExpenses.forEach((item) => {
+      const amount = finiteNumber(item.amount, 0);
+      if (amount <= 0) return;
+      const resolvedFoodSnapshot = (item.expense_type || 'common') === 'feed' && item.food_item_id
+        ? resolveFoodRateSnapshot(item.food_item_id, entry_date)
+        : null;
+      insertExpense.run(dailyEntryId, item.category_id || null, item.expense_type || 'common', item.cow_id || null, item.food_item_id || null, resolvedFoodSnapshot?.food_price_history_id || null, resolvedFoodSnapshot?.food_name_snapshot || item.food_name_snapshot || null, resolvedFoodSnapshot?.unit_type_snapshot || item.unit_type_snapshot || null, resolvedFoodSnapshot?.rate_effective_from || null, finiteNumber(item.quantity_kg, 0), finiteNumber((resolvedFoodSnapshot?.unit_rate ?? item.unit_rate), 0), amount, item.entry_shift || null, item.description || '', item.payment_mode || 'Cash', item.bill_path || null);
+    });
+    refreshInvestmentStatuses();
+    return { dailyEntryId, totalIncome, totalExpenses, profit, remaining };
+  });
+  return tx();
+}
+
+function bundleToAgentPayload(bundle, entryDate) {
+  const entry = bundle?.entry || {};
+  return {
+    entry_date: entry.entry_date || entryDate,
+    entry_mode: (bundle?.cowEntries || []).length ? 'cows' : 'direct',
+    total_milk_litres: finiteNumber(entry.total_milk_litres, 0),
+    notes: entry.notes || '',
+    remaining_milk_usage: 'Home Use',
+    cowEntries: (bundle?.cowEntries || []).map((row) => ({ cow_id: row.cow_id, total_litres: finiteNumber(row.total_litres), entry_shift: row.entry_shift || 'Morning', status: row.status || 'Recorded', notes: row.notes || '' })),
+    milkSales: (bundle?.milkSales || []).map((row) => ({ buyer_id: row.buyer_id, litres: finiteNumber(row.litres), rate_per_litre: finiteNumber(row.rate_per_litre), entry_shift: row.entry_shift || 'Morning', notes: row.notes || '' })),
+    expenses: (bundle?.expenses || []).map((row) => ({ category_id: row.category_id, expense_type: row.expense_type || 'common', cow_id: row.cow_id, food_item_id: row.food_item_id, food_price_history_id: row.food_price_history_id, food_name_snapshot: row.food_name_snapshot, unit_type_snapshot: row.unit_type_snapshot, rate_effective_from: row.rate_effective_from, quantity_kg: finiteNumber(row.quantity_kg), unit_rate: finiteNumber(row.unit_rate), amount: finiteNumber(row.amount), entry_shift: row.entry_shift, description: row.description || '', payment_mode: row.payment_mode || 'Cash' }))
+  };
+}
+
+function buildPayloadFromPatch(entryDate, patch = {}) {
+  const existing = getSingleValue('SELECT * FROM daily_entries WHERE entry_date = ?', [entryDate]);
+  const bundle = getDailyEntryBundle(existing);
+  const payload = bundleToAgentPayload(bundle, entryDate);
+  const refs = getAgentReferenceData();
+  if (patch.total_milk_litres !== undefined) payload.total_milk_litres = finiteNumber(patch.total_milk_litres, payload.total_milk_litres);
+  if (patch.notes) payload.notes = [payload.notes, `Agent: ${patch.notes}`].filter(Boolean).join('\n');
+
+  (patch.cowEntries || []).forEach((item) => {
+    const cow = findByNameOrId(refs.cows, item.cow_id || item.cow_name || item.name);
+    if (!cow) throw new Error(`Cow not found: ${item.cow_name || item.cow_id || item.name}`);
+    if (cow.status === 'Sold' || cow.status === 'Deceased') throw new Error(`Cannot add milk/feed for ${cow.name}; status is ${cow.status}`);
+    payload.entry_mode = 'cows';
+    payload.cowEntries.push({ cow_id: cow.id, total_litres: finiteNumber(item.total_litres ?? item.litres), entry_shift: item.entry_shift || 'Morning', status: item.status || 'Recorded', notes: item.notes || '' });
+  });
+  (patch.milkSales || []).forEach((item) => {
+    const buyer = findByNameOrId(refs.buyers, item.buyer_id || item.buyer_name || item.name) || refs.buyers[0];
+    if (!buyer) throw new Error('No buyer found. Add a buyer first.');
+    payload.milkSales.push({ buyer_id: buyer.id, litres: finiteNumber(item.litres), rate_per_litre: finiteNumber(item.rate_per_litre ?? item.rate, buyer.default_rate || 0), entry_shift: item.entry_shift || 'Morning', notes: item.notes || '' });
+  });
+  (patch.expenses || []).forEach((item) => {
+    const expenseType = item.expense_type || (item.food_name || item.food_item_id || item.cow_name ? 'feed' : 'common');
+    if (expenseType === 'feed') {
+      const cow = findByNameOrId(refs.cows, item.cow_id || item.cow_name) || refs.cows.find((c) => c.status !== 'Sold' && c.status !== 'Deceased');
+      const food = findByNameOrId(refs.foods, item.food_item_id || item.food_name) || refs.foods[0];
+      if (!cow || !food) throw new Error('Feed expense needs one active cow and one food item.');
+      if (cow.status === 'Sold' || cow.status === 'Deceased') throw new Error(`Cannot add feed for ${cow.name}; status is ${cow.status}`);
+      const snapshot = resolveFoodRateSnapshot(food.id, entryDate) || {};
+      const qty = finiteNumber(item.quantity_kg, 1);
+      payload.expenses.push({ expense_type: 'feed', cow_id: cow.id, food_item_id: food.id, food_price_history_id: snapshot.food_price_history_id || null, food_name_snapshot: snapshot.food_name_snapshot || food.name, unit_type_snapshot: snapshot.unit_type_snapshot || food.unit_type || 'kg', rate_effective_from: snapshot.rate_effective_from || null, quantity_kg: qty, unit_rate: finiteNumber(snapshot.unit_rate, finiteNumber(item.unit_rate)), amount: finiteNumber(item.amount), entry_shift: item.entry_shift || 'Morning', description: item.description || '', payment_mode: item.payment_mode || 'Cash' });
+      return;
+    }
+    const category = findByNameOrId(refs.categories, item.category_id || item.category_name || item.name) || refs.categories[0];
+    if (!category) throw new Error('No expense category found.');
+    payload.expenses.push({ expense_type: 'common', category_id: category.id, amount: finiteNumber(item.amount), description: item.description || item.category_name || '', payment_mode: item.payment_mode || 'Cash' });
+  });
+  return payload;
+}
+
+function summarizeAgentPayload(payload) {
+  const saleLitres = payload.milkSales.reduce((sum, row) => sum + finiteNumber(row.litres), 0);
+  const expenses = payload.expenses.reduce((sum, row) => sum + finiteNumber(row.amount), 0);
+  return { entry_date: payload.entry_date, total_milk_litres: payload.total_milk_litres, sale_litres: saleLitres, expense_total: expenses, cow_entry_count: payload.cowEntries.length, sale_count: payload.milkSales.length, expense_count: payload.expenses.length, remaining_estimate: finiteNumber(payload.total_milk_litres) - saleLitres };
+}
+
+const agentTools = [
+  { type: 'function', function: { name: 'get_dashboard', description: 'Get farm dashboard totals and trends.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'get_daily_entry', description: 'Get a saved daily entry bundle by date.', parameters: { type: 'object', properties: { entry_date: { type: 'string' } }, required: ['entry_date'] } } },
+  { type: 'function', function: { name: 'list_reference_data', description: 'List cows, buyers, categories and food item names/ids.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'get_reports', description: 'Get report summary for date range.', parameters: { type: 'object', properties: { start: { type: 'string' }, end: { type: 'string' } } } } },
+  { type: 'function', function: { name: 'draft_daily_entry', description: 'Create a safe daily-entry payload preview from a patch. Does not save.', parameters: { type: 'object', properties: { entry_date: { type: 'string' }, patch: { type: 'object' } }, required: ['entry_date', 'patch'] } } },
+  { type: 'function', function: { name: 'save_daily_entry', description: 'Save a daily-entry patch only when user explicitly confirms.', parameters: { type: 'object', properties: { entry_date: { type: 'string' }, patch: { type: 'object' }, confirmed: { type: 'boolean' } }, required: ['entry_date', 'patch', 'confirmed'] } } }
+];
+
+function executeAgentTool(name, args = {}) {
+  if (name === 'get_dashboard') return { dashboard: getDashboard() };
+  if (name === 'get_daily_entry') {
+    if (!isIsoDate(args.entry_date)) throw new Error('entry_date must be YYYY-MM-DD');
+    const entry = getSingleValue('SELECT * FROM daily_entries WHERE entry_date = ?', [args.entry_date]);
+    return getDailyEntryBundle(entry);
+  }
+  if (name === 'list_reference_data') {
+    const refs = getAgentReferenceData();
+    return {
+      cows: refs.cows.map(({ id, name, status }) => ({ id, name, status })),
+      buyers: refs.buyers.map(({ id, name, default_rate, active }) => ({ id, name, default_rate, active })),
+      categories: refs.categories.map(({ id, name }) => ({ id, name })),
+      foods: refs.foods.map(({ id, name, rate_per_kg, unit_type }) => ({ id, name, rate_per_kg, unit_type }))
+    };
+  }
+  if (name === 'get_reports') {
+    const from = args.start || '0000-01-01';
+    const to = args.end || '9999-12-31';
+    return {
+      summary: getSingleValue(`SELECT COUNT(*) totalDays, COALESCE(SUM(total_milk_litres),0) milk, COALESCE(SUM(total_income),0) income, COALESCE(SUM(total_expenses),0) expenses, COALESCE(SUM(profit),0) profit FROM daily_entries WHERE entry_date BETWEEN ? AND ?`, [from, to]),
+      rows: db.prepare('SELECT * FROM daily_entries WHERE entry_date BETWEEN ? AND ? ORDER BY entry_date ASC LIMIT 90').all(from, to)
+    };
+  }
+  if (name === 'draft_daily_entry' || name === 'save_daily_entry') {
+    const entryDate = args.entry_date || dayjs().format('YYYY-MM-DD');
+    if (!isIsoDate(entryDate)) throw new Error('entry_date must be YYYY-MM-DD');
+    const payload = buildPayloadFromPatch(entryDate, args.patch || {});
+    const preview = summarizeAgentPayload(payload);
+    if (name === 'draft_daily_entry' || !args.confirmed) return { needs_confirmation: true, preview, payload };
+    const result = saveDailyEntryPayload(payload);
+    return { saved: true, result, preview };
+  }
+  throw new Error(`Unknown agent tool: ${name}`);
+}
+
+function localFarmAgentReply(message) {
+  const lower = String(message || '').toLowerCase();
+  const todayValue = dayjs().format('YYYY-MM-DD');
+  const amount = Number((message.match(/(\d+(?:\.\d+)?)/) || [])[1]);
+  if (/summary|analysis|profit|dashboard/.test(lower)) return { reply: buildLocalSummary(), toolCalls: [{ name: 'get_dashboard', result: { dashboard: getDashboard() } }] };
+  if (/add|save|record|enter/.test(lower)) {
+    const patch = { notes: message };
+    if (/milk|litre|liter|ltr/.test(lower) && Number.isFinite(amount)) patch.total_milk_litres = amount;
+    else if (/sale|sold|buyer/.test(lower) && Number.isFinite(amount)) patch.milkSales = [{ litres: amount, rate_per_litre: Number((lower.match(/(?:rate|rs|₹|price)\s*(\d+(?:\.\d+)?)/) || [])[1] || 0) }];
+    else if (/expense|spent|cost|paid|feed|food/.test(lower) && Number.isFinite(amount)) patch.expenses = [{ expense_type: /feed|food/.test(lower) ? 'feed' : 'common', amount, description: message }];
+    const payload = buildPayloadFromPatch(todayValue, patch);
+    return { reply: `I drafted this entry bro. Please confirm before saving.\n${JSON.stringify(summarizeAgentPayload(payload), null, 2)}`, toolCalls: [{ name: 'draft_daily_entry', result: { needs_confirmation: true, preview: summarizeAgentPayload(payload), payload } }] };
+  }
+  return { reply: 'I am your server-side farm agent bro. I can call safe tools: dashboard, reports, daily entry, reference data, draft/save daily entries with confirmation.' };
+}
+
+function buildLocalSummary() {
+  const d = getDashboard();
+  return [`Today summary:`, `• Milk: ${d.today.totalMilkLitres} L`, `• Income: ₹${d.today.totalIncome}`, `• Expenses: ₹${d.today.totalExpenses}`, `• Profit: ₹${d.today.profit}`, '', `This month:`, `• Milk: ${d.monthly.milk} L`, `• Profit: ₹${d.monthly.profit}`, `• Margin: ${d.monthly.profitMargin}%`].join('\n');
+}
+
+async function callOpenAiCompatible({ provider, baseUrl, apiKey, model, messages }) {
+  if (!baseUrl || !model) throw new Error('Model base URL and model name are required');
+  const endpoint = `${String(baseUrl).replace(/\/$/, '')}/chat/completions`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+    body: JSON.stringify({ model, messages, tools: agentTools, tool_choice: 'auto', temperature: 0.2 })
+  });
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(`Model returned invalid JSON: ${text.slice(0, 120)}`); }
+  if (!response.ok) throw new Error(data.error?.message || data.message || `${provider || 'model'} request failed`);
+  return data.choices?.[0]?.message || { content: 'No response from model.' };
+}
+
+async function runServerFarmAgent({ message, history = [], modelConfig = {} }) {
+  const provider = modelConfig.provider || 'local';
+  if (provider === 'local' || !modelConfig.model) return localFarmAgentReply(message);
+
+  const system = `You are Farm Agent inside Milk Business Pro. Behave like a helpful agent with tools. You may analyze data and draft entries. For any database write, first call draft_daily_entry and ask for confirmation. Only call save_daily_entry when the user clearly confirms. Never invent IDs; call list_reference_data if needed. Keep replies casual and concise.`;
+  const messages = [{ role: 'system', content: system }, ...history.slice(-12).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content || m.text || '' })), { role: 'user', content: message }];
+  const toolCalls = [];
+  let assistant = await callOpenAiCompatible({ provider, baseUrl: modelConfig.baseUrl, apiKey: modelConfig.apiKey, model: modelConfig.model, messages });
+  messages.push(assistant);
+  for (let i = 0; i < 5 && assistant.tool_calls?.length; i += 1) {
+    for (const call of assistant.tool_calls) {
+      const name = call.function?.name;
+      let args = {};
+      try { args = JSON.parse(call.function?.arguments || '{}'); } catch {}
+      const result = executeAgentTool(name, args);
+      toolCalls.push({ name, args, result });
+      messages.push({ role: 'tool', tool_call_id: call.id, name, content: JSON.stringify(result).slice(0, 12000) });
+    }
+    assistant = await callOpenAiCompatible({ provider, baseUrl: modelConfig.baseUrl, apiKey: modelConfig.apiKey, model: modelConfig.model, messages });
+    messages.push(assistant);
+  }
+  return { reply: assistant.content || 'Done bro.', toolCalls };
+}
+
+app.get('/api/agent/models', auth, async (req, res) => {
+  const ollamaBase = req.query.ollamaBase || 'http://127.0.0.1:11434';
+  const models = [{ provider: 'local', name: 'client-agent', label: 'Fast built-in farm agent' }];
+  try {
+    const response = await fetch(`${String(ollamaBase).replace(/\/$/, '')}/api/tags`);
+    if (response.ok) {
+      const data = await response.json();
+      (data.models || []).forEach((model) => models.push({ provider: 'ollama', name: model.name, label: `Ollama: ${model.name}` }));
+    }
+  } catch {}
+  models.push({ provider: 'openai-compatible', name: 'gpt-4.1-mini', label: 'OpenAI-compatible: gpt-4.1-mini' });
+  models.push({ provider: 'openai-compatible', name: 'gpt-5', label: 'OpenAI-compatible: gpt-5' });
+  ok(res, { models, note: 'ChatGPT Plus/Codex OAuth is not a normal app API. Use API key or an OpenAI-compatible local proxy. Ollama works locally without API key.' });
+});
+
+app.get('/api/agent/sessions', auth, (req, res) => {
+  const sessions = db.prepare('SELECT * FROM agent_sessions ORDER BY updated_at DESC, id DESC LIMIT 50').all();
+  ok(res, { sessions });
+});
+
+app.post('/api/agent/sessions', auth, (req, res) => {
+  const title = (req.body.title || 'Farm Agent Chat').slice(0, 80);
+  const info = db.prepare('INSERT INTO agent_sessions (title, model_provider, model_name) VALUES (?, ?, ?)').run(title, req.body.provider || 'local', req.body.model || 'client-agent');
+  ok(res, { session: db.prepare('SELECT * FROM agent_sessions WHERE id=?').get(info.lastInsertRowid) });
+});
+
+app.get('/api/agent/sessions/:id/messages', auth, (req, res) => {
+  const messages = db.prepare('SELECT * FROM agent_messages WHERE session_id=? ORDER BY id ASC LIMIT 200').all(req.params.id);
+  ok(res, { messages });
+});
+
+app.post('/api/agent/chat', auth, async (req, res) => {
+  try {
+    const { message, sessionId, modelConfig = {} } = req.body;
+    if (!message || !String(message).trim()) return fail(res, 400, 'Message is required');
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
+      const info = db.prepare('INSERT INTO agent_sessions (title, model_provider, model_name) VALUES (?, ?, ?)').run(String(message).slice(0, 60), modelConfig.provider || 'local', modelConfig.model || 'client-agent');
+      currentSessionId = info.lastInsertRowid;
+    }
+    db.prepare('INSERT INTO agent_messages (session_id, role, content) VALUES (?, ?, ?)').run(currentSessionId, 'user', message);
+    const history = db.prepare('SELECT role, content FROM agent_messages WHERE session_id=? ORDER BY id DESC LIMIT 12').all(currentSessionId).reverse();
+    const result = await runServerFarmAgent({ message, history, modelConfig });
+    db.prepare('INSERT INTO agent_messages (session_id, role, content, tool_payload) VALUES (?, ?, ?, ?)').run(currentSessionId, 'assistant', result.reply, JSON.stringify(result.toolCalls || []));
+    db.prepare('UPDATE agent_sessions SET updated_at=CURRENT_TIMESTAMP, model_provider=?, model_name=? WHERE id=?').run(modelConfig.provider || 'local', modelConfig.model || 'client-agent', currentSessionId);
+    ok(res, { sessionId: currentSessionId, reply: result.reply, toolCalls: result.toolCalls || [] });
+  } catch (error) {
+    fail(res, 500, error.message || 'Agent failed');
+  }
+});
+
 app.get('/api/meta', auth, (req, res) => ok(res, { now: new Date().toISOString() }));
 
 app.use((err, req, res, next) => {
