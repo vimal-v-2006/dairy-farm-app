@@ -34,7 +34,6 @@ async function chatWithOllama(messages, options = {}) {
         model: config.model,
         messages,
         stream: false,
-        format: 'json',
         keep_alive: '10m',
         options: {
           temperature: 0.2,
