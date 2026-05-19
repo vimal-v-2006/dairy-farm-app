@@ -683,12 +683,67 @@ Return JSON with this exact shape:
 If the user is asking only for explanation or you cannot safely decide the SQL, return actions: [] and a helpful reply.`;
 }
 
+// ── Ollama model selector ──────────────────────────────────────────────────────
+// Always routes to localhost:11434.
+// On first call, fetches /api/tags and picks the best available model based on
+// parameter count. Result is cached for the process lifetime.
+
+const OLLAMA_BASE_URL = 'http://localhost:11434';
+
+// Preference order: larger parameter count wins.
+// Ties broken by this explicit priority list (higher index = lower priority fallback).
+const MODEL_PRIORITY = [
+  'gpt-oss', 'llama3.3', 'llama3.2', 'llama3.1', 'llama3',
+  'mistral-nemo', 'mistral-small', 'mistral',
+  'gemma3', 'gemma2', 'gemma',
+  'qwen2.5', 'qwen2', 'qwen',
+  'phi4', 'phi3',
+  'deepseek-r1', 'deepseek',
+  'codellama', 'neural-chat', 'vicuna'
+];
+
+let _selectedModel = null;
+
+async function selectBestModel() {
+  if (_selectedModel) return _selectedModel;
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error('tags failed');
+    const { models = [] } = await res.json();
+    if (!models.length) throw new Error('no models');
+
+    // Parse parameter size string like "20.9B", "8.0B", "3.2B" → number
+    function parseParams(m) {
+      const raw = m.details?.parameter_size || '0';
+      return parseFloat(raw.replace(/[^0-9.]/g, '')) || 0;
+    }
+
+    // Score: param count (primary) + priority list bonus (secondary)
+    function score(m) {
+      const params = parseParams(m);
+      const nameBase = m.name.split(':')[0].toLowerCase();
+      const priorityBonus = MODEL_PRIORITY.indexOf(nameBase);
+      // Higher params = better; priority list breaks ties (earlier = better = higher bonus)
+      return params * 1000 + (priorityBonus >= 0 ? (MODEL_PRIORITY.length - priorityBonus) : 0);
+    }
+
+    const best = models.slice().sort((a, b) => score(b) - score(a))[0];
+    _selectedModel = best.name;
+    console.log(`[AI] Ollama model selected: ${_selectedModel} (${best.details?.parameter_size || '?'} params)`);
+  } catch (err) {
+    // Fallback: use env var or a sensible default if tags endpoint fails
+    _selectedModel = process.env.OLLAMA_MODEL || 'llama3:8b';
+    console.warn(`[AI] Could not fetch Ollama models (${err.message}). Falling back to: ${_selectedModel}`);
+  }
+  return _selectedModel;
+}
+
 async function callOllama(messages) {
-  const { baseUrl, model } = getOllamaConfig();
+  const model = await selectBestModel();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages, stream: false, format: 'json' }),
