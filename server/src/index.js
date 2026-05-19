@@ -1104,9 +1104,7 @@ app.get('/api/agent/models', auth, async (req, res) => {
     }
   } catch {}
   models.push({ provider: 'google-ai-studio', name: 'gemini-2.0-flash', label: 'Google AI Studio: gemini-2.0-flash' });
-  models.push({ provider: 'google-ai-studio', name: 'gemini-2.0-flash-lite', label: 'Google AI Studio: gemini-2.0-flash-lite' });
-  models.push({ provider: 'google-ai-studio', name: 'gemini-2.5-flash', label: 'Google AI Studio: gemini-2.5-flash' });
-  models.push({ provider: 'google-ai-studio', name: 'gemini-2.5-flash-lite', label: 'Google AI Studio: gemini-2.5-flash-lite' });
+  models.push({ provider: 'google-ai-studio', name: 'gemini-1.5-flash', label: 'Google AI Studio: gemini-1.5-flash' });
   models.push({ provider: 'openai-compatible', name: 'gpt-4.1-mini', label: 'OpenAI-compatible: gpt-4.1-mini' });
   models.push({ provider: 'openai-compatible', name: 'gpt-5', label: 'OpenAI-compatible: gpt-5' });
   ok(res, { models, note: 'Supports Google AI Studio/Gemini API keys, Ollama locally, OpenAI API, or any OpenAI-compatible proxy.' });

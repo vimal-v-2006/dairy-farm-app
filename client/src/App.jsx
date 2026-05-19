@@ -138,7 +138,6 @@ function App() {
   const [farmAgentBusy, setFarmAgentBusy] = useState(false);
   const [farmAgentMode, setFarmAgentMode] = useState(() => localStorage.getItem('milk_business_farm_agent_mode') || 'server');
   const [farmAgentSessionId, setFarmAgentSessionId] = useState(() => localStorage.getItem('milk_business_farm_agent_session_id') || '');
-  const [farmAgentModels, setFarmAgentModels] = useState([]);
   const [farmAgentModelConfig, setFarmAgentModelConfig] = useState(() => {
     try {
       return withAgentProviderDefaults(JSON.parse(localStorage.getItem('milk_business_farm_agent_model') || '{}'));
@@ -183,14 +182,6 @@ function App() {
   useEffect(() => {
     if (farmAgentSessionId) localStorage.setItem('milk_business_farm_agent_session_id', farmAgentSessionId);
   }, [farmAgentSessionId]);
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    api('/api/agent/models')
-      .then((data) => { if (!cancelled) setFarmAgentModels(data.models || []); })
-      .catch(() => { if (!cancelled) setFarmAgentModels([]); });
-    return () => { cancelled = true; };
-  }, [user]);
   useEffect(() => { if (user) refresh(today(), true); }, [user]);
   useEffect(() => { setMobileNavOpen(false); }, [tab]);
   useEffect(() => {
@@ -2342,16 +2333,14 @@ function App() {
         setMode={setFarmAgentMode}
         modelConfig={farmAgentModelConfig}
         setModelConfig={setFarmAgentModelConfig}
-        availableModels={farmAgentModels}
       />
       {message && <div className="glass fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium">{message}</div>}
     </div>
   );
 }
 
-function FarmAgentChat({ open, onToggle, messages, input, setInput, busy, onSend, onClear, mode, setMode, modelConfig, setModelConfig, availableModels = [] }) {
+function FarmAgentChat({ open, onToggle, messages, input, setInput, busy, onSend, onClear, mode, setMode, modelConfig, setModelConfig }) {
   const scrollRef = useRef(null);
-  const providerModels = availableModels.filter((item) => item.provider === (modelConfig.provider || 'local'));
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -2405,11 +2394,7 @@ function FarmAgentChat({ open, onToggle, messages, input, setInput, busy, onSend
               </div>
               {mode === 'server' && modelConfig.provider !== 'local' && (
                 <div className="mt-2 grid gap-2">
-                  <select value={modelConfig.model || ''} onChange={(event) => setModelConfig((config) => ({ ...config, model: event.target.value }))} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950">
-                    {providerModels.length === 0 && <option value={modelConfig.model || ''}>{modelConfig.model || getAgentPlaceholder(modelConfig.provider, 'model').replace('Model e.g. ', '')}</option>}
-                    {providerModels.map((item) => <option key={`${item.provider}-${item.name}`} value={item.name}>{item.label || item.name}</option>)}
-                  </select>
-                  <input value={modelConfig.model || ''} onChange={(event) => setModelConfig((config) => ({ ...config, model: event.target.value }))} placeholder={getAgentPlaceholder(modelConfig.provider, 'model')} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none dark:border-white/10 dark:bg-slate-950" />
+                  <input value={modelConfig.model || ''} onChange={(event) => setModelConfig((config) => ({ ...config, model: event.target.value }))} placeholder={getAgentPlaceholder(modelConfig.provider, 'model')} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
                   <input value={modelConfig.baseUrl || ''} onChange={(event) => setModelConfig((config) => ({ ...config, baseUrl: event.target.value }))} placeholder={getAgentPlaceholder(modelConfig.provider, 'baseUrl')} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
                   {modelConfig.provider !== 'ollama' && <input type="password" value={modelConfig.apiKey || ''} onChange={(event) => setModelConfig((config) => ({ ...config, apiKey: event.target.value }))} placeholder={modelConfig.provider === 'google-ai-studio' ? 'Google AI Studio API key' : 'API key / compatible proxy token'} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />}
                   <p className="opacity-60">Note: API keys stay in this browser and are sent only to this server for the selected AI request. Supports Google AI Studio/Gemini, Ollama, OpenAI API, or any OpenAI-compatible proxy.</p>
