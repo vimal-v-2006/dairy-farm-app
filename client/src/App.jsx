@@ -21,34 +21,158 @@ const nav = [
 
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
 
+// ── Gen UI Message — renders AI reply + rich data widgets ─────────────────────
 function AiMessageContent({ text }) {
-  const renderInlineMarkdown = (value) => {
-    const parts = String(value || '').split(/(\*\*[^*]+\*\*)/g);
-    return parts.map((part, index) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={index} className="font-bold">{part.slice(2, -2)}</strong>;
-      }
-      return part;
-    });
-  };
-
+  const parts = String(text || '').split(/(\*\*[^*]+\*\*)/g);
   const lines = String(text || '').split('\n');
-
+  const renderInline = (value) =>
+    String(value || '').split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
+      p.startsWith('**') && p.endsWith('**')
+        ? <strong key={i} className="font-semibold">{p.slice(2, -2)}</strong>
+        : p
+    );
   return (
-    <div className="space-y-2 leading-relaxed">
-      {lines.map((line, index) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={index} className="h-1" />;
-        if (/^[-*]\s+/.test(trimmed)) {
+    <div className="space-y-1.5 leading-relaxed">
+      {lines.map((line, i) => {
+        const t = line.trim();
+        if (!t) return <div key={i} className="h-1" />;
+        if (/^[-*]\s+/.test(t))
           return (
-            <div key={index} className="flex gap-2">
-              <span className="mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
-              <span>{renderInlineMarkdown(trimmed.replace(/^[-*]\s+/, ''))}</span>
+            <div key={i} className="flex gap-2 items-start">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-50" />
+              <span>{renderInline(t.replace(/^[-*]\s+/, ''))}</span>
             </div>
           );
-        }
-        return <div key={index}>{renderInlineMarkdown(line)}</div>;
+        return <div key={i}>{renderInline(line)}</div>;
       })}
+    </div>
+  );
+}
+
+const CHART_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
+
+function GenUIDataBlock({ result }) {
+  const { uiHint, rows, rowCount, type, purpose } = result || {};
+  if (!rows || rows.length === 0) return null;
+  const keys = Object.keys(rows[0]);
+
+  // ── Metric cards ──────────────────────────────────────────────────────────
+  if (uiHint === 'metrics') {
+    const row = rows[0];
+    return (
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {keys.map((k) => (
+          <div key={k} className="rounded-xl bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700 px-3 py-2 shadow-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-50 truncate">{k.replace(/_/g, ' ')}</p>
+            <p className="text-lg font-black truncate">
+              {/rupee|income|expense|profit|amount|rate|price/i.test(k) ? `₹${Number(row[k]).toLocaleString('en-IN')}` : String(row[k] ?? '—')}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Bar chart ─────────────────────────────────────────────────────────────
+  if (uiHint === 'bar_chart') {
+    const labelKey = keys[0];
+    const valueKey = keys[1];
+    const isRupee = /rupee|income|expense|profit|amount|rate|price/i.test(valueKey);
+    return (
+      <div className="mt-3 rounded-xl bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700 p-3 shadow-sm">
+        {purpose && <p className="text-[10px] font-semibold uppercase tracking-wide opacity-40 mb-2 truncate">{purpose}</p>}
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+            <XAxis dataKey={labelKey} tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
+            <YAxis tick={{ fontSize: 10 }} />
+            <Tooltip formatter={(v) => isRupee ? `₹${Number(v).toLocaleString('en-IN')}` : v} />
+            <Bar dataKey={valueKey} radius={[4, 4, 0, 0]}>
+              {rows.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  // ── Line chart ────────────────────────────────────────────────────────────
+  if (uiHint === 'line_chart') {
+    const dateKey = keys.find((k) => /date|day|month|week/i.test(k)) || keys[0];
+    const valueKeys = keys.filter((k) => k !== dateKey);
+    return (
+      <div className="mt-3 rounded-xl bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700 p-3 shadow-sm">
+        {purpose && <p className="text-[10px] font-semibold uppercase tracking-wide opacity-40 mb-2 truncate">{purpose}</p>}
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+            <XAxis dataKey={dateKey} tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval="preserveStartEnd" />
+            <YAxis tick={{ fontSize: 10 }} />
+            <Tooltip />
+            {valueKeys.map((k, i) => (
+              <Line key={k} type="monotone" dataKey={k} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  // ── Table ─────────────────────────────────────────────────────────────────
+  if (uiHint === 'table' || (rows.length >= 2 && keys.length >= 2)) {
+    return (
+      <div className="mt-3 rounded-xl overflow-hidden border border-white/40 dark:border-slate-700 shadow-sm">
+        {purpose && <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wide opacity-40 truncate">{purpose}</p>}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-100/80 dark:bg-slate-700/80">
+                {keys.map((k) => (
+                  <th key={k} className="px-3 py-2 text-left font-semibold uppercase tracking-wide opacity-60 whitespace-nowrap">
+                    {k.replace(/_/g, ' ')}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} className="border-t border-slate-100 dark:border-slate-700/60 hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
+                  {keys.map((k) => (
+                    <td key={k} className="px-3 py-1.5 whitespace-nowrap">
+                      {/rupee|income|expense|profit|amount|rate|price/i.test(k) && row[k] != null
+                        ? `₹${Number(row[k]).toLocaleString('en-IN')}`
+                        : String(row[k] ?? '—')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="px-3 py-1.5 text-[10px] opacity-40">{rows.length} row{rows.length !== 1 ? 's' : ''}</p>
+      </div>
+    );
+  }
+
+  // ── List ──────────────────────────────────────────────────────────────────
+  return (
+    <div className="mt-2 space-y-1">
+      {rows.map((row, i) => (
+        <div key={i} className="flex gap-2 items-center text-sm">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+          <span>{Object.values(row).join(' · ')}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GenUIMessage({ content, results }) {
+  const dataResults = (results || []).filter((r) => r.rows && r.rows.length > 0 && r.type === 'SELECT');
+  return (
+    <div>
+      <AiMessageContent text={content} />
+      {dataResults.map((r, i) => <GenUIDataBlock key={i} result={r} />)}
     </div>
   );
 }
@@ -254,6 +378,7 @@ function App() {
       setAiMessages((prev) => [...prev, {
         role: 'assistant',
         content: data.reply || 'Done.',
+        results: data.data?.results || [],
         meta: data.data?.confirmationRequired ? 'Confirmation required. Reply yes to execute.' : ''
       }]);
       if (!data.data?.confirmationRequired && Array.isArray(data.actions) && data.actions.some((action) => /^(INSERT|UPDATE|DELETE)\b/i.test(action.sql || ''))) {
@@ -1261,8 +1386,10 @@ function App() {
                   <div ref={aiChatListRef} className="mt-4 h-[52vh] min-h-[360px] space-y-3 overflow-y-auto rounded-3xl border border-white/20 bg-slate-50/80 p-4 dark:bg-slate-950/50">
                     {aiMessages.map((item, index) => (
                       <div key={`${item.role}-${index}`} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[86%] rounded-3xl px-4 py-3 text-sm shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'border border-white/20 bg-white/90 text-slate-900 dark:bg-slate-800 dark:text-white'}`}>
-                          <AiMessageContent text={item.content} />
+                        <div className={`${item.role === 'user' ? 'max-w-[80%]' : 'max-w-[92%] w-full'} rounded-3xl px-4 py-3 text-sm shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'border border-white/20 bg-white/90 text-slate-900 dark:bg-slate-800 dark:text-white'}`}>
+                          {item.role === 'assistant'
+                            ? <GenUIMessage content={item.content} results={item.results} />
+                            : <AiMessageContent text={item.content} />}
                           {item.meta && <div className="mt-2 text-xs font-bold text-amber-600 dark:text-amber-300">{item.meta}</div>}
                         </div>
                       </div>

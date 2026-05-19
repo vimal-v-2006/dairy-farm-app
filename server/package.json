@@ -9,6 +9,7 @@
     "build-client": "cd ../client && npm install && npm run build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.97.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
     "cors": "^2.8.6",

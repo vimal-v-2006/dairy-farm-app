@@ -3,13 +3,39 @@ const { executePlan, validateSql } = require('./dbExecutor');
 const { db } = require('../db');
 
 const pendingConfirmations = new Map();
-const OLLAMA_UNAVAILABLE_REPLY = 'AI model is not available right now. Please check Ollama and the gemma4:31b-cloud model.';
+const AI_UNAVAILABLE_REPLY = 'AI model is not available right now. Please check Ollama and the model.';
 
-function getOllamaConfig() {
-  return {
-    baseUrl: (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, ''),
-    model: process.env.OLLAMA_MODEL || 'gemma4:31b-cloud'
-  };
+// ── UI hint detection ──────────────────────────────────────────────────────────
+// Inspect SELECT result rows and return a ui hint so the frontend can render
+// the best widget: table | metrics | bar_chart | line_chart | list | text
+function detectUiHint(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return 'text';
+  const keys = Object.keys(rows[0]);
+  const numericKeys = keys.filter((k) => rows.every((r) => r[k] !== null && r[k] !== undefined && !isNaN(Number(r[k]))));
+  const dateKeys = keys.filter((k) => /date|day|month|week/i.test(k));
+
+  // Single-row multiple numeric columns → metrics cards
+  if (rows.length === 1 && numericKeys.length >= 2) return 'metrics';
+
+  // Time-series data (date + 1-3 numeric cols) → line chart
+  if (dateKeys.length === 1 && numericKeys.length >= 1 && numericKeys.length <= 3 && rows.length >= 3) return 'line_chart';
+
+  // Name + single value (e.g. cow name + litres) → bar chart
+  if (keys.length === 2 && numericKeys.length === 1 && rows.length >= 2 && rows.length <= 20) return 'bar_chart';
+
+  // Multiple rows with multiple columns → table
+  if (rows.length >= 2 || keys.length >= 3) return 'table';
+
+  return 'list';
+}
+
+// Attach ui hints to execution results
+function attachUiHints(plan, execution) {
+  const results = execution.results || [];
+  return results.map((result, index) => {
+    const uiHint = result.type === 'SELECT' ? detectUiHint(result.rows) : 'text';
+    return { ...result, uiHint, purpose: plan.actions?.[index]?.purpose || '' };
+  });
 }
 
 function extractJson(text) {
@@ -602,28 +628,35 @@ function validateBusinessPlanForVisibility(userMessage, plan) {
 
 function buildSystemPrompt(schemaContext) {
   return `You are the backend AI database assistant for Milk Business Pro, a dairy farm financial app.
-You receive the SQLite schema and a natural language user request. Return ONLY valid JSON. No markdown.
+You receive the SQLite schema and a natural language user request. Return ONLY valid JSON. No markdown. No explanation outside JSON.
 
 DATABASE SCHEMA:
 ${schemaContext}
 
 CURRENT DATE: ${todayIsoDate()}
 
+ANSWERING COMPLEX QUESTIONS:
+- For any analytical/reporting question (totals, averages, comparisons, rankings, trends, profit/loss, best/worst cow, monthly summary, date ranges), always generate a SELECT query — do not say "I cannot answer".
+- Use SQLite aggregate functions: SUM(), AVG(), COUNT(), MAX(), MIN(), GROUP BY, ORDER BY, LIMIT.
+- For monthly/weekly trends: use strftime('%Y-%m', entry_date) for grouping.
+- For cow rankings: JOIN cow_milk_entries with cows, GROUP BY cow_id, ORDER BY SUM(total_litres) DESC.
+- For profit analysis: SELECT entry_date, total_income, total_expenses, profit FROM daily_entries.
+- For buyer analysis: JOIN milk_sales with buyers, GROUP BY buyer_id.
+- Always SELECT human-readable column aliases (e.g. SUM(total_litres) AS total_litres).
+- Never return empty actions for a data question — always attempt a SELECT.
+
 SECURITY AND EXECUTION RULES:
 - The frontend never touches the database. You are inside the backend.
-- Generate a small DB plan using generic SQL actions, not hardcoded app tools.
 - Allowed SQL only: SELECT, INSERT, UPDATE, DELETE.
 - Never generate DROP, ALTER, CREATE, PRAGMA, VACUUM, ATTACH, DETACH, schema changes, or multiple statements in one SQL string.
 - UPDATE and DELETE must always include a precise WHERE clause.
 - DELETE is dangerous: first SELECT matching rows and set requiresConfirmation true unless the user is already confirming a pending delete.
-- If a delete request matches multiple possible rows, only SELECT choices and ask the user which row to delete.
 - Normal safe INSERTs may execute without confirmation.
 - Simple precise UPDATEs may execute without confirmation, but if ambiguous, SELECT first and ask a clarifying question.
 - Prefer existing categories/rows. Use SELECT first if you need IDs such as category_id, daily_entry_id, cow_id, buyer_id, food_item_id.
-- For expenses: ensure a daily_entries row exists for the target date before inserting expenses. You may use INSERT OR IGNORE into daily_entries(entry_date,...).
-- For cow-wise milk production: ensure a daily_entries row exists, then write cow_milk_entries. Never only update daily_entries.total_milk_litres for cow-wise/cow-named production. Use existing cows.id; if cow is missing or ambiguous, SELECT cows and ask.
-- For milk sales: ensure a daily_entries row exists, then write milk_sales with an existing buyer_id, litres, rate_per_litre, income, payment_status, and entry_shift. If buyer is missing or ambiguous, SELECT buyers and ask.
-- For parent creation, use INSERT OR IGNORE INTO daily_entries(entry_date, total_milk_litres, remaining_milk_litres, total_income, total_expenses, profit, notes) VALUES (...), then use SELECT id FROM daily_entries WHERE entry_date = ... for child rows.
+- For expenses: ensure a daily_entries row exists for the target date before inserting expenses.
+- For cow-wise milk production: ensure a daily_entries row exists, then write cow_milk_entries.
+- For milk sales: ensure a daily_entries row exists, then write milk_sales with an existing buyer_id, litres, rate_per_litre, income, payment_status, and entry_shift.
 - For milk sales: income = litres * rate_per_litre.
 - For cow milk entries: total_litres should be the entered total, or morning_litres + evening_litres.
 - Keep SQL concise and use SQLite date functions when helpful.
@@ -706,8 +739,9 @@ async function handleChat({ message, userId = 'default' }) {
     if (pending && isConfirmationMessage(trimmed)) {
       pendingConfirmations.delete(userId);
       const execution = executePlan(pending.plan, { confirmed: true });
+      const enrichedResults = attachUiHints(pending.plan, execution);
       const reply = await makeReplyFromResults(pending.originalMessage, pending.plan, execution);
-      return { success: true, reply, actions: pending.plan.actions || [], data: { results: summarizeResults(pending.plan, execution) } };
+      return { success: true, reply, actions: pending.plan.actions || [], data: { results: enrichedResults, uiHints: enrichedResults.map((r) => r.uiHint) } };
     }
 
     let plan = buildDailyEntryPlanFromMessage(trimmed) || await planForMessage(trimmed);
@@ -742,16 +776,17 @@ async function handleChat({ message, userId = 'default' }) {
     }
 
     const execution = executePlan(plan);
+    const enrichedResults = attachUiHints(plan, execution);
     const reply = plan.deterministicRepair ? plan.reply : await makeReplyFromResults(trimmed, plan, execution);
-    return { success: true, reply, actions: plan.actions, data: { results: summarizeResults(plan, execution) } };
+    return { success: true, reply, actions: plan.actions, data: { results: enrichedResults, uiHints: enrichedResults.map((r) => r.uiHint) } };
   } catch (err) {
     const messageText = String(err.message || err);
     if (/fetch|Ollama|abort|ECONNREFUSED|ENOTFOUND|terminated|HTTP 404|HTTP 500/i.test(messageText)) {
-      return { success: true, reply: OLLAMA_UNAVAILABLE_REPLY, actions: [], data: { error: 'ollama_unavailable' } };
+      return { success: true, reply: AI_UNAVAILABLE_REPLY, actions: [], data: { error: 'ollama_unavailable' } };
     }
     console.error('[AI DB Agent Error]', err);
     return { success: false, reply: 'I could not safely complete that database request.', actions: [], data: { error: messageText } };
   }
 }
 
-module.exports = { handleChat, OLLAMA_UNAVAILABLE_REPLY, buildDailyEntryPlanFromMessage, buildCowWiseMilkPlanFromMessage };
+module.exports = { handleChat, AI_UNAVAILABLE_REPLY, buildDailyEntryPlanFromMessage, buildCowWiseMilkPlanFromMessage };
