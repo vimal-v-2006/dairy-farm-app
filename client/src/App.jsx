@@ -25,6 +25,29 @@ const remainingMilkOptions = ['Home Use', 'Bonus Quantity', 'Meeting Use', 'Spoi
 const cowStatusOptions = ['Lactating', 'Dry', 'Calf', 'Sold', 'Deceased'];
 const calfStatusOptions = ['Growing', 'Ready for lactation', 'Transferred'];
 const calfSourceOptions = ['Raised', 'Purchased young'];
+const agentProviderDefaults = {
+  local: { model: 'client-agent', baseUrl: '', apiKey: '' },
+  ollama: { model: 'llama3.1', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: '' },
+  'google-ai-studio': { model: 'gemini-2.0-flash', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: '' },
+  'openai-compatible': { model: 'gpt-4.1-mini', baseUrl: 'https://api.openai.com/v1', apiKey: '' }
+};
+
+function withAgentProviderDefaults(config = {}) {
+  const provider = config.provider || 'local';
+  const defaults = agentProviderDefaults[provider] || agentProviderDefaults.local;
+  return { provider, ...defaults, ...config };
+}
+
+function getAgentPlaceholder(provider, field) {
+  if (field === 'model') {
+    if (provider === 'ollama') return 'Model e.g. llama3.1';
+    if (provider === 'google-ai-studio') return 'Model e.g. gemini-2.0-flash';
+    return 'Model e.g. gpt-4.1-mini';
+  }
+  if (provider === 'ollama') return 'http://127.0.0.1:11434/v1';
+  if (provider === 'google-ai-studio') return 'https://generativelanguage.googleapis.com/v1beta/openai';
+  return 'https://api.openai.com/v1';
+}
 const reportSections = [
   { id: 'report-filters', label: 'Report filters', icon: TrendingUp },
   { id: 'summary-reports', label: 'Summary reports', icon: CalendarDays },
@@ -117,9 +140,9 @@ function App() {
   const [farmAgentSessionId, setFarmAgentSessionId] = useState(() => localStorage.getItem('milk_business_farm_agent_session_id') || '');
   const [farmAgentModelConfig, setFarmAgentModelConfig] = useState(() => {
     try {
-      return { provider: 'local', model: 'client-agent', baseUrl: '', apiKey: '', ...JSON.parse(localStorage.getItem('milk_business_farm_agent_model') || '{}') };
+      return withAgentProviderDefaults(JSON.parse(localStorage.getItem('milk_business_farm_agent_model') || '{}'));
     } catch {
-      return { provider: 'local', model: 'client-agent', baseUrl: '', apiKey: '' };
+      return withAgentProviderDefaults();
     }
   });
   const [farmAgentMessages, setFarmAgentMessages] = useState(() => {
@@ -1063,15 +1086,13 @@ function App() {
     setFarmAgentMessages((items) => [...items, { role: 'user', text }]);
     try {
       if (farmAgentMode === 'server') {
-        const provider = farmAgentModelConfig.provider || 'local';
-        const baseUrl = farmAgentModelConfig.baseUrl || (provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : provider === 'openai-compatible' ? 'https://api.openai.com/v1' : '');
-        const model = farmAgentModelConfig.model || (provider === 'ollama' ? 'llama3.1' : provider === 'openai-compatible' ? 'gpt-4.1-mini' : 'client-agent');
+        const resolvedModelConfig = withAgentProviderDefaults(farmAgentModelConfig);
         const data = await api('/api/agent/chat', {
           method: 'POST',
           body: JSON.stringify({
             message: text,
             sessionId: farmAgentSessionId || null,
-            modelConfig: { ...farmAgentModelConfig, provider, baseUrl, model }
+            modelConfig: resolvedModelConfig
           })
         });
         if (data.sessionId) setFarmAgentSessionId(String(data.sessionId));
@@ -2363,19 +2384,20 @@ function FarmAgentChat({ open, onToggle, messages, input, setInput, busy, onSend
                 </label>
                 <label className="space-y-1 font-bold">
                   <span className="opacity-60">Model provider</span>
-                  <select value={modelConfig.provider || 'local'} onChange={(event) => setModelConfig((config) => ({ ...config, provider: event.target.value, model: event.target.value === 'local' ? 'client-agent' : config.model }))} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold outline-none dark:border-white/10 dark:bg-slate-950">
+                  <select value={modelConfig.provider || 'local'} onChange={(event) => setModelConfig((config) => withAgentProviderDefaults({ provider: event.target.value, apiKey: config.apiKey || '' }))} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold outline-none dark:border-white/10 dark:bg-slate-950">
                     <option value="local">Built-in safe agent</option>
                     <option value="ollama">Ollama local model</option>
+                    <option value="google-ai-studio">Google AI Studio / Gemini</option>
                     <option value="openai-compatible">OpenAI-compatible / ChatGPT API</option>
                   </select>
                 </label>
               </div>
               {mode === 'server' && modelConfig.provider !== 'local' && (
                 <div className="mt-2 grid gap-2">
-                  <input value={modelConfig.model || ''} onChange={(event) => setModelConfig((config) => ({ ...config, model: event.target.value }))} placeholder={modelConfig.provider === 'ollama' ? 'Model e.g. llama3.1' : 'Model e.g. gpt-4.1-mini'} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
-                  <input value={modelConfig.baseUrl || ''} onChange={(event) => setModelConfig((config) => ({ ...config, baseUrl: event.target.value }))} placeholder={modelConfig.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : 'https://api.openai.com/v1'} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
-                  {modelConfig.provider === 'openai-compatible' && <input type="password" value={modelConfig.apiKey || ''} onChange={(event) => setModelConfig((config) => ({ ...config, apiKey: event.target.value }))} placeholder="API key / compatible proxy token" className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />}
-                  <p className="opacity-60">Note: ChatGPT Plus/Codex OAuth is not a normal app API. This supports API keys, Ollama, or any OpenAI-compatible local proxy.</p>
+                  <input value={modelConfig.model || ''} onChange={(event) => setModelConfig((config) => ({ ...config, model: event.target.value }))} placeholder={getAgentPlaceholder(modelConfig.provider, 'model')} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
+                  <input value={modelConfig.baseUrl || ''} onChange={(event) => setModelConfig((config) => ({ ...config, baseUrl: event.target.value }))} placeholder={getAgentPlaceholder(modelConfig.provider, 'baseUrl')} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
+                  {modelConfig.provider !== 'ollama' && <input type="password" value={modelConfig.apiKey || ''} onChange={(event) => setModelConfig((config) => ({ ...config, apiKey: event.target.value }))} placeholder={modelConfig.provider === 'google-ai-studio' ? 'Google AI Studio API key' : 'API key / compatible proxy token'} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />}
+                  <p className="opacity-60">Note: API keys stay in this browser and are sent only to this server for the selected AI request. Supports Google AI Studio/Gemini, Ollama, OpenAI API, or any OpenAI-compatible proxy.</p>
                 </div>
               )}
             </div>
