@@ -113,7 +113,7 @@ function App() {
   ]);
   const [aiInput, setAiInput] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
-  const aiChatEndRef = useRef(null);
+  const aiChatListRef = useRef(null);
   const cowCollectionRef = useRef(null);
   const milkSalesRef = useRef(null);
   const dailyExpensesRef = useRef(null);
@@ -139,7 +139,11 @@ function App() {
   useEffect(() => { setMobileNavOpen(false); }, [tab]);
   useEffect(() => {
     if (tab !== 'ai') return;
-    aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const chatList = aiChatListRef.current;
+    if (!chatList) return;
+    window.requestAnimationFrame(() => {
+      chatList.scrollTo({ top: chatList.scrollHeight, behavior: 'smooth' });
+    });
   }, [aiMessages, aiBusy, tab]);
   useEffect(() => {
     const onScroll = () => setShowScrollTop(window.scrollY > 260);
@@ -1221,7 +1225,7 @@ function App() {
                 </div>
                 <div className="rounded-3xl border border-white/20 bg-white/45 p-4 dark:bg-slate-900/35">
                   <p className="text-sm opacity-70">Type naturally. The React client only sends your message to <b>/api/ai/chat</b>; schema inspection, SQL planning, validation, and database execution all happen inside the server.</p>
-                  <div className="mt-4 h-[52vh] min-h-[360px] space-y-3 overflow-y-auto rounded-3xl border border-white/20 bg-slate-50/80 p-4 dark:bg-slate-950/50">
+                  <div ref={aiChatListRef} className="mt-4 h-[52vh] min-h-[360px] space-y-3 overflow-y-auto rounded-3xl border border-white/20 bg-slate-50/80 p-4 dark:bg-slate-950/50">
                     {aiMessages.map((item, index) => (
                       <div key={`${item.role}-${index}`} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[86%] rounded-3xl px-4 py-3 text-sm shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'border border-white/20 bg-white/90 text-slate-900 dark:bg-slate-800 dark:text-white'}`}>
@@ -1235,7 +1239,6 @@ function App() {
                         <div className="inline-flex items-center gap-2 rounded-3xl border border-white/20 bg-white/90 px-4 py-3 text-sm dark:bg-slate-800"><Loader2 className="animate-spin" size={16} /> Thinking with database schema…</div>
                       </div>
                     )}
-                    <div ref={aiChatEndRef} aria-hidden="true" />
                   </div>
                   <form onSubmit={sendAiMessage} className="mt-4 flex flex-col gap-3 sm:flex-row">
                     <input
