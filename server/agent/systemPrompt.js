@@ -1,8 +1,39 @@
 const { today } = require('./safety');
 const fs = require('fs');
 const path = require('path');
+const { db } = require('../src/db');
+
+function getSchema() {
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  const schema = [];
+  for (const { name } of tables) {
+    const cols = db.prepare(`PRAGMA table_info(${name})`).all();
+    const foreignKeys = db.prepare(`PRAGMA foreign_key_list(${name})`).all();
+    schema.push({ table: name, columns: cols, foreignKeys });
+  }
+  return schema;
+}
+
+function formatSchema(schema) {
+  const lines = ['## Database Schema'];
+  for (const { table, columns, foreignKeys } of schema) {
+    lines.push(`\n### ${table}`);
+    for (const col of columns) {
+      const pk = col.pk ? ' PK' : '';
+      const notnull = col.notnull ? ' NOT NULL' : '';
+      const def = col.dflt_value ? ` DEFAULT ${col.dflt_value}` : '';
+      lines.push(`  - ${col.name} (${col.type}${pk}${notnull}${def})`);
+    }
+    for (const fk of foreignKeys) {
+      lines.push(`  - FK: ${fk.from} -> ${fk.table}(${fk.to})`);
+    }
+  }
+  return lines.join('\n');
+}
 
 function buildSystemPrompt(tools) {
+  const schema = getSchema();
+  const schemaText = formatSchema(schema);
   const instructionsPath = path.join(__dirname, 'instructions.md');
   let extraInstructions = '';
   try {
@@ -10,41 +41,33 @@ function buildSystemPrompt(tools) {
   } catch (e) {
     extraInstructions = '';
   }
-  return `You are Dairy Farm Pro AI Assistant, a real AI farm manager agent inside the Dairy Farm App.
+  return `You are Dairy Farm Pro AI Assistant. You have direct SQL access to a SQLite dairy farm database.
 
 Current date: ${today()}.
 
-You are not a keyword chatbot.
-You are not a rule-based command bot.
-You understand natural language and use tools when needed.
+${schemaText}
 
-You help manage cows, milk production, milk sales, buyers, expenses, investments, daily entries, profit/loss, farm reports, and farm analysis.
+## Rules
+1. Use queryDatabase for all SELECT/read queries.
+2. Use prepareWrite for INSERT, UPDATE, DELETE — this creates a pending action that the user must confirm. Never write without confirmation.
+3. When adding records that depend on foreign keys (e.g. expenses need daily_entry_id), first find or create the parent record.
+4. For daily entries: use INSERT INTO daily_entries if one doesn't exist for the date, then use that daily_entry_id for child records (cow_milk_entries, milk_sales, expenses).
+5. Always use parameterized queries with ? placeholders — never concatenate user input into SQL.
+6. Use Indian Rupees ₹ for monetary values. Use litres for milk. Use YYYY-MM-DD dates.
+7. If data is missing or a record isn't found, ask the user rather than guessing.
+8. Keep answers friendly and useful. Act like a smart farm manager.
+9. After inserting a record, you can query it back to confirm it was saved correctly.
+10. You can chain multiple queries in one response by calling tools sequentially.
+11. Items like Ostrovet, Liver tonic, Mineral, Salt, and all medicines are common expenses (use expenses table with expense_type='common'), never per-cow feed.
+12. Feed items (Super Napier, Concentrate, etc.) are per-cow feed expenses (use expenses table with expense_type='feed', cow_id, food_item_id, quantity_kg, entry_shift).
+13. First query existing data (cows, food_items, expense_categories, buyers) to find matching records before inserting new ones.${extraInstructions}
 
-Rules:
-1. Use tools to fetch real data from the database.
-2. Never invent numbers.
-3. Never modify database without confirmation.
-4. For read-only questions, fetch data and answer clearly.
-5. For add/edit/delete requests, prepare a confirmation preview first by calling a prepare tool.
-6. Use Indian Rupees ₹.
-7. Use litres for milk.
-8. Use clear YYYY-MM-DD dates.
-9. If user gives incomplete details, ask a simple follow-up question.
-10. If model or tool fails, explain clearly.
-11. Keep answers friendly and useful.
-12. Act like a smart farm manager assistant.
-13. Format list answers with real new lines. Put every bullet on its own line using "- ".
-14. Keep confirmation and write previews short. The app will show the detailed preview separately.
-15. For feed expenses (per-cow food items like Super Napier, Concentrate, etc.), use prepareAddExpense with expenseType "feed", cowName, foodName, quantityKg, unitRate, and entryShift. First use getFoodItems to find current rates, then calculate amount = quantityKg * unitRate. Look up existing food items and cows before creating new ones.
-16. For general expenses (electricity, vet, labour, etc.), use prepareAddExpense with expenseType "common" (default) and a category name.
-17. Items like Ostrovet, Liver tonic, Mineral, Salt, and all medicines are common expenses (bought in bulk), never per-cow feed.${extraInstructions}
-
-Available tools:
+## Available tools
 ${JSON.stringify(tools, null, 2)}
 
 You must reply with only valid JSON.
 When you need a tool:
-{"type":"tool_call","tool":"tool_name","arguments":{}}
+{"type":"tool_call","tool":"tool_name","arguments":{...}}
 
 When final answer is enough:
 {"type":"final","answer":"..."}

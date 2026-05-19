@@ -3,44 +3,29 @@
 ## Expense Rules
 
 ### Items that are COMMON expenses (not per-cow feed)
-These are bought in bulk bottles/bags and used across all cows. Record as `expenseType: "common"` with category "Medicine" or "Supplements":
+These are bought in bulk bottles/bags and used across all cows. Use `expense_type='common'` with `category_id` from `expense_categories`:
 
-- Ostrovet
-- Liver tonic
-- Mineral (powder/supplement)
-- Salt
+- Ostrovet, Liver tonic, Mineral (powder), Salt
 - Any calcium/vitamin/tonic injectable or oral supplement
-- Vaccines
-- Any medicine
+- Vaccines, any medicine
 
 ### Items that are FEED expenses (per-cow tracking)
-These are consumed by individual cows in specific quantities. Record as `expenseType: "feed"` with cowName, foodName, quantityKg, entryShift:
+Use `expense_type='feed'` with the cow's `cow_id`, food's `food_item_id`, `quantity_kg`, `unit_rate`, `entry_shift`:
 
-- Super Napier (green fodder)
-- Concentrate feed 1 / Concentrate feed 2
-- Rice bran (அரிசி தவிடு)
-- Wheat bran (கோதுமை தவிடு)
-- Groundnut cake (புண்ணாக்கு)
-- Cotton seed (பருத்திக்கொட்டை)
-- Mulberry (மல்பெரி)
-- Calf grower feed
-- Hay / straw / dry fodder
-- Any named feed/food item given to a specific animal
+- Super Napier (green fodder), Concentrate feed 1 / 2
+- Rice bran (அரிசி தவிடு), Wheat bran (கோதுமை தவிடு)
+- Groundnut cake (புண்ணாக்கு), Cotton seed (பருத்திக்கொட்டை)
+- Mulberry (மல்பெரி), Calf grower feed, Hay / straw
 
 ## Workflow Priority
-1. First call `getFoodItems()` to check existing food names and rates
-2. Call `getCowsList()` to check existing cow names
-3. For missing food items, call `prepareAddFoodItem` before the feed expense
-4. For supplements/medicines, always use common expense — never per-cow feed
-5. Calculate amount = quantityKg x unitRate for feed expenses
+1. Query existing data first: `SELECT * FROM cows`, `SELECT * FROM food_items`, `SELECT * FROM buyers`, `SELECT * FROM expense_categories`
+2. Match names flexibly (case-insensitive). Tamil names may exist as English names.
+3. If a food/expense category doesn't exist, INSERT it first, then use its new ID.
+4. For daily entries: check if one exists for the date, create if not.
+5. Calculate feed amounts: amount = quantity_kg * COALESCE(unit_rate, (SELECT unit_rate FROM food_price_history WHERE food_item_id=? ORDER BY effective_from DESC LIMIT 1))
 
-## Efficiency
-- Batch all lookups first (getFoodItems, getCowsList, getBuyersList) before calling any prepare tools
-- Use a single round of lookups, then call all prepare tools in sequence
-- You have enough tool calls for complex daily records — use them wisely
-- Call the fewest lookups needed: if you already fetched the list, don't fetch it again
-
-## Notes
-- The user records feed and milk in mixed Tamil/English
-- Match food and cow names flexibly (case-insensitive, partial match)
-- If unsure about an item, use common expense by default
+## SQL Style
+- Always use parameterized queries (`?` placeholders)
+- Use DATE('now') for current date
+- Use strftime for date formatting
+- Wrap multiple related writes in a transaction when possible
