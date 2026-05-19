@@ -20,6 +20,7 @@ It supports:
 - cow records and history
 - business reports and exports
 - separate capital/assets recovery tracking
+- backend-only AI Database Assistant powered by local Ollama
 
 The system is designed so that **daily income/expense/profit records remain separate** from **capital/assets tracking**, helping preserve core business analysis without mixing long-term investment recovery into normal operating profit data.
 
@@ -150,6 +151,17 @@ This app is not a full ERP or multi-company accounting suite. It is a focused da
 - Move completed items into a finished section
 - Preserve existing income/expense/profit analysis without modifying past records
 
+### 10. AI Database Assistant
+- Natural-language chat panel in the React frontend
+- Frontend only sends the typed message to `POST /api/ai/chat`
+- Backend AI agent uses local Ollama only; no OpenAI, Anthropic, or cloud AI API
+- Schema inspector reads current SQLite tables, columns, and relationship hints
+- Generic DB executor validates SQL before running it against the existing backend database connection
+- Supports database reading/analysis and safe inserts/updates/deletes through one controlled intelligence layer
+- Blocks dangerous SQL such as DROP, ALTER, CREATE, VACUUM, ATTACH, PRAGMA, and multi-statement queries
+- Blocks UPDATE/DELETE without WHERE; DELETE requests require confirmation
+- If Ollama or the configured model is unavailable, the app returns a friendly error instead of crashing
+
 ---
 
 ## Tech Stack
@@ -171,6 +183,11 @@ This app is not a full ERP or multi-company accounting suite. It is a focused da
 
 ### Database
 - SQLite
+
+### AI Provider
+- Ollama local server
+- Default endpoint: `http://localhost:11434/api/chat`
+- Default model from `server/.env.example`: `gemma4:31b-cloud`
 
 ### Export / Utilities
 - jsPDF
@@ -297,7 +314,36 @@ The app supports export features using:
 
 This makes the app useful not just for internal entry, but also for sharing records outside the app.
 
-### 11. Why this architecture fits this use case
+### 11. AI Database Assistant workflow
+The AI Assistant is not a hardcoded command chatbot. It is a backend database assistant with controlled generic DB access.
+
+Flow:
+```text
+Client Chat UI
+→ POST /api/ai/chat
+→ AI Agent Backend
+→ Schema Inspector
+→ SQL Safety Validator / DB Executor
+→ SQLite Database
+```
+
+Important behavior:
+- The React client does not connect to SQLite and does not receive database credentials.
+- The backend inspects the current schema at request time, including table names, columns, foreign keys, and relationship hints.
+- The backend sends the schema context and the user request to Ollama through `POST /api/chat`.
+- Ollama returns a JSON plan containing generic SQL actions.
+- The backend validates the SQL before execution.
+- Read-only questions run SELECT/WITH SELECT queries.
+- Safe inserts and precise updates can execute directly.
+- Deletes and dangerous/ambiguous actions require confirmation or are blocked.
+- AI-generated SQL is logged in the server console for debugging as `[AI DB SQL] ...`.
+
+If Ollama is not running, the model is still downloading, or the configured model is missing, the app responds with:
+```text
+AI model is not available right now. Please check Ollama and the gemma4:31b-cloud model.
+```
+
+### 12. Why this architecture fits this use case
 This architecture is a good fit because it is:
 - simple to install
 - low maintenance
@@ -358,27 +404,30 @@ cd dairy-farm-app
 
 ### 2. Install dependencies
 
-Install root dependencies:
+Install dependencies in the same split-app order used by the project:
 
 ```bash
 npm install
-```
-
-If needed, you can also install per package:
-
-```bash
-cd client && npm install
-cd ../server && npm install
+cd server && npm install
+cd ../client && npm install
+cd ..
 ```
 
 ---
 
 ## Running the App in Development
 
-From the project root:
+From the project root, you can start both services together:
 
 ```bash
 npm run dev
+```
+
+Or run them separately exactly like this:
+
+```bash
+npm run dev --prefix server
+npm run dev --prefix client
 ```
 
 This starts:
@@ -451,7 +500,7 @@ npm run start
 
 ## Environment Configuration
 
-The backend supports a custom JWT secret.
+The backend supports JWT, database path, and local Ollama configuration. Copy `server/.env.example` to `server/.env` when you want local overrides.
 
 ### JWT Secret
 ```bash
@@ -461,6 +510,21 @@ npm run dev
 ```
 
 If not provided, the app falls back to an internal default JWT secret. For real deployment, **always set your own secure secret**.
+
+### Ollama AI Assistant
+The AI assistant uses only your local Ollama server.
+
+```bash
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gemma4:31b-cloud
+```
+
+The backend calls:
+```text
+POST http://localhost:11434/api/chat
+```
+
+Do not put AI provider secrets in the frontend. The frontend only sends messages to the backend route `POST /api/ai/chat`.
 
 ---
 
@@ -491,6 +555,17 @@ server/data/dairy-farm.db
 
 ### Important note
 The database file is local. If you move or delete it, your stored records move or disappear with it unless backed up.
+
+### SQLite WAL files
+Because the backend enables SQLite WAL mode, the data folder may contain three related files while the server is running:
+
+```text
+server/data/dairy-farm.db
+server/data/dairy-farm.db-wal
+server/data/dairy-farm.db-shm
+```
+
+These are normal SQLite files. Do not delete them while the app is running. For backups, stop the server first or use a SQLite-safe backup method so the `.db`, `.db-wal`, and `.db-shm` state is consistent.
 
 ---
 
@@ -576,6 +651,20 @@ It does **not**:
 - The app checks income recovery from that date onward
 - If income already covers the amount, it can move directly to the finished section
 - Once finished, it stores completion status separately
+
+---
+
+## 9. AI Assistant
+Use **AI Assistant** to ask natural-language questions or request safe database changes.
+
+Examples:
+- Show this month total milk production
+- Which cow produced the most milk this week?
+- Add ₹350 medicine expense for today
+- Change yesterday feed expense from 500 to 650
+- Delete the wrong expense I added today for ₹100
+
+The assistant is backend-only for database access. The chat UI does not directly connect to SQLite. Dangerous deletes require confirmation, and unsafe SQL is blocked by the server.
 
 ---
 
@@ -689,6 +778,7 @@ Potential future enhancements:
 - Excel/CSV import wizard
 - receipt upload UI
 - multi-language support
+- improved AI confirmation UI for ambiguous edits/deletes
 - automated backups
 - role-based access control
 - mobile-friendly data entry improvements
