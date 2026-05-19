@@ -34,6 +34,12 @@ These are consumed by individual cows in specific quantities. Record as `expense
 4. For supplements/medicines, always use common expense — never per-cow feed
 5. Calculate amount = quantityKg x unitRate for feed expenses
 
+## Efficiency
+- Batch all lookups first (getFoodItems, getCowsList, getBuyersList) before calling any prepare tools
+- Use a single round of lookups, then call all prepare tools in sequence
+- You have enough tool calls for complex daily records — use them wisely
+- Call the fewest lookups needed: if you already fetched the list, don't fetch it again
+
 ## Notes
 - The user records feed and milk in mixed Tamil/English
 - Match food and cow names flexibly (case-insensitive, partial match)

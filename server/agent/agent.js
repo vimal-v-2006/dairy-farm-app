@@ -4,7 +4,7 @@ const { toolDefinitions, validateToolArguments } = require('./toolSchemas');
 const { executeTool } = require('./toolExecutor');
 const { FALLBACK_MESSAGE } = require('./safety');
 
-const MAX_TOOL_CALLS = 6;
+const MAX_TOOL_CALLS = 18;
 
 function safeJsonParse(text) {
   try {
