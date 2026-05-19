@@ -6,6 +6,9 @@ server/data/
 server/uploads/
 .env
 .env.*
+!.env.example
+!server/.env.example
+!client/.env.example
 .DS_Store
 *.log
 npm-debug.log*

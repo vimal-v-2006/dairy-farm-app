@@ -15,7 +15,8 @@ const nav = [
   ['buyers', 'Buyers', Users],
   ['settings', 'Expense categories', Settings2],
   ['reports', 'Reports', TrendingUp],
-  ['investments', 'Capital / Assets', Wallet]
+  ['investments', 'Capital / Assets', Wallet],
+  ['ai', 'AI Assistant', Bot]
 ];
 
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
@@ -107,6 +108,11 @@ function App() {
   const [selectedCalfRecordId, setSelectedCalfRecordId] = useState(null);
   const [cowHistory, setCowHistory] = useState([]);
   const [cowHistoryLoading, setCowHistoryLoading] = useState(false);
+  const [aiMessages, setAiMessages] = useState([
+    { role: 'assistant', content: 'Ask me anything about your dairy database. I can read reports and safely add or update records through the backend AI agent.' }
+  ]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
   const cowCollectionRef = useRef(null);
   const milkSalesRef = useRef(null);
   const dailyExpensesRef = useRef(null);
@@ -192,6 +198,30 @@ function App() {
     setMessage(text);
     window.clearTimeout(notify.timer);
     notify.timer = window.setTimeout(() => setMessage(''), 2500);
+  }
+
+  async function sendAiMessage(e) {
+    e?.preventDefault?.();
+    const text = aiInput.trim();
+    if (!text || aiBusy) return;
+    setAiInput('');
+    setAiBusy(true);
+    setAiMessages((prev) => [...prev, { role: 'user', content: text }]);
+    try {
+      const data = await api('/api/ai/chat', { method: 'POST', body: JSON.stringify({ message: text }) });
+      setAiMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: data.reply || 'Done.',
+        meta: data.data?.confirmationRequired ? 'Confirmation required. Reply yes to execute.' : ''
+      }]);
+      if (!data.data?.confirmationRequired && Array.isArray(data.actions) && data.actions.some((action) => /^(INSERT|UPDATE|DELETE)\b/i.test(action.sql || ''))) {
+        refresh(dailyForm.entry_date || today(), true).catch(() => {});
+      }
+    } catch (err) {
+      setAiMessages((prev) => [...prev, { role: 'assistant', content: err.message || 'AI assistant failed.' }]);
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   const dashboard = state.dashboard;
@@ -1174,6 +1204,51 @@ function App() {
                 <InfoBox title="Cow performance" lines={dashboard?.cows?.best ? [`Best yielder: ${dashboard.cows.best.name}`, `Total milk: ${litres(dashboard.cows.best.totalMilk)}`, `Status: ${dashboard.cows.best.status || 'Lactating'}`] : ['No cow production data yet']} />
                 <InfoBox title="Cow attention" lines={dashboard?.cows?.low ? [`Lowest yielder: ${dashboard.cows.low.name}`, `Total milk: ${litres(dashboard.cows.low.totalMilk)}`, `Nil-yield days: ${dashboard.cows.low.nilDays || 0}`] : ['No low-yield data yet']} />
               </div>
+            </section>
+          )}
+
+          {tab === 'ai' && (
+            <section className="space-y-4">
+              <Card>
+                <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <SectionTitle title="AI Database Assistant" icon={Bot} />
+                  <span className="rounded-full border border-emerald-300/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-200">Backend-only DB access via Ollama</span>
+                </div>
+                <div className="rounded-3xl border border-white/20 bg-white/45 p-4 dark:bg-slate-900/35">
+                  <p className="text-sm opacity-70">Type naturally. The React client only sends your message to <b>/api/ai/chat</b>; schema inspection, SQL planning, validation, and database execution all happen inside the server.</p>
+                  <div className="mt-4 h-[52vh] min-h-[360px] space-y-3 overflow-y-auto rounded-3xl border border-white/20 bg-slate-50/80 p-4 dark:bg-slate-950/50">
+                    {aiMessages.map((item, index) => (
+                      <div key={`${item.role}-${index}`} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[86%] rounded-3xl px-4 py-3 text-sm shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'border border-white/20 bg-white/90 text-slate-900 dark:bg-slate-800 dark:text-white'}`}>
+                          <div className="whitespace-pre-wrap leading-relaxed">{item.content}</div>
+                          {item.meta && <div className="mt-2 text-xs font-bold text-amber-600 dark:text-amber-300">{item.meta}</div>}
+                        </div>
+                      </div>
+                    ))}
+                    {aiBusy && (
+                      <div className="flex justify-start">
+                        <div className="inline-flex items-center gap-2 rounded-3xl border border-white/20 bg-white/90 px-4 py-3 text-sm dark:bg-slate-800"><Loader2 className="animate-spin" size={16} /> Thinking with database schema…</div>
+                      </div>
+                    )}
+                  </div>
+                  <form onSubmit={sendAiMessage} className="mt-4 flex flex-col gap-3 sm:flex-row">
+                    <input
+                      value={aiInput}
+                      onChange={(event) => setAiInput(event.target.value)}
+                      placeholder="Example: Show this month total milk production"
+                      className="min-h-12 flex-1 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 outline-none transition focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/70"
+                    />
+                    <button disabled={aiBusy || !aiInput.trim()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 px-5 py-3 font-bold text-slate-950 shadow-lg shadow-emerald-500/20 disabled:opacity-50">
+                      {aiBusy ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />} Send
+                    </button>
+                  </form>
+                  <div className="mt-3 grid gap-2 text-xs opacity-70 md:grid-cols-3">
+                    <div>Try: Which cow produced the most milk this week?</div>
+                    <div>Try: Add ₹350 medicine expense for today</div>
+                    <div>Try: Change yesterday feed expense from 500 to 650</div>
+                  </div>
+                </div>
+              </Card>
             </section>
           )}
 

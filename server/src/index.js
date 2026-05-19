@@ -11,6 +11,7 @@ const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const dayjs = require('dayjs');
 const { db, initDb } = require('./db');
+const { handleChat } = require('./ai/aiDbAgent');
 
 initDb();
 
@@ -828,6 +829,11 @@ app.delete('/api/account', auth, (req, res) => {
 });
 
 app.get('/api/meta', auth, (req, res) => ok(res, { now: new Date().toISOString() }));
+
+app.post('/api/ai/chat', auth, body('message').isString().isLength({ min: 1 }).withMessage('Message is required'), validate, async (req, res) => {
+  const result = await handleChat({ message: req.body.message, userId: req.user?.id || 'default' });
+  res.status(result.success ? 200 : 400).json(result);
+});
 
 
 
