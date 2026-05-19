@@ -157,6 +157,77 @@ function findMentionedBuyer(message) {
   return buyers.find((buyer) => new RegExp(`\\b${escapeRegex(String(buyer.name).toLowerCase())}\\b`).test(normalized)) || null;
 }
 
+function normalizeEntityName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ');
+}
+
+function parseBuyerNameForCreate(message) {
+  const raw = String(message || '').trim();
+  const text = raw.toLowerCase();
+  if (!/\b(add|create|save|new|insert)\b/.test(text) || !/\bbuyer\b/.test(text)) return null;
+  if (/\b(sold|sell|sale|sales|litre|liter|litres|liters|milk)\b/.test(text)) return null;
+
+  const patterns = [
+    /\bbuyer\s+(?:named|name|called|as)\s+([a-z0-9][a-z0-9 ._-]{0,80})\b/i,
+    /\b(?:add|create|save|new|insert)\s+(?:a\s+)?buyer\s+([a-z0-9][a-z0-9 ._-]{0,80})\b/i,
+    /\b(?:add|create|save|new|insert)\s+([a-z0-9][a-z0-9 ._-]{0,80})\s+buyer\b/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) {
+      const name = normalizeEntityName(match[1].replace(/\b(?:with|rate|contact|location|notes?)\b[\s\S]*$/i, ''));
+      if (name && !/^buyer$/i.test(name)) return name;
+    }
+  }
+  return null;
+}
+
+function buildBuyerPlanFromMessage(message) {
+  const name = parseBuyerNameForCreate(message);
+  if (!name) return null;
+  const existing = db.prepare('SELECT id, name, active FROM buyers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1').get(name);
+  if (existing) {
+    if (Number(existing.active) === 0) {
+      return {
+        reply: `Buyer ${existing.name} already exists but is inactive. I reactivated it.`,
+        actions: [
+          {
+            sql: `UPDATE buyers SET active = 1 WHERE id = ${Number(existing.id)}`,
+            purpose: `Reactivate existing buyer ${existing.name}.`,
+            requiresConfirmation: false
+          }
+        ],
+        readOnly: false,
+        expectsConfirmation: false,
+        deterministicRepair: true
+      };
+    }
+    return {
+      reply: `Buyer ${existing.name} already exists.`,
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+
+  const rate = parseRate(message) || 0;
+  return {
+    reply: `Added buyer ${name}${rate ? ` with default rate ₹${rate}/L` : ''}.`,
+    actions: [
+      {
+        sql: `INSERT INTO buyers (name, location, default_rate, contact, notes, active) VALUES (${sqlQuote(name)}, NULL, ${Number(rate)}, NULL, 'Added by AI assistant', 1)`,
+        purpose: `Create buyer ${name} so milk sales can be linked to this buyer.`,
+        requiresConfirmation: false
+      }
+    ],
+    readOnly: false,
+    expectsConfirmation: false,
+    deterministicRepair: true
+  };
+}
+
 function findMentionedFood(message) {
   const normalized = String(message || '').toLowerCase();
   const foods = db.prepare("SELECT id, name, rate_per_kg, unit_type FROM food_items WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY LENGTH(name) DESC").all();
@@ -264,6 +335,29 @@ function buildCowWiseMilkPlanFromMessage(message) {
 }
 
 
+function extractBuyerNameFromSaleMessage(message) {
+  const raw = String(message || '').trim();
+  const patterns = [
+    /\b(?:to|for|in|from)\s+([a-z0-9][a-z0-9 ._-]{0,60})\s+(?:in\s+)?(?:morning|evening|night|am|pm)\b/i,
+    /\b(?:to|for|in|from)\s+([a-z0-9][a-z0-9 ._-]{0,60})(?:\s+at\s+\d|\s+rate\b|\s+on\b|\s*$)/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) {
+      const name = normalizeEntityName(match[1].replace(/\b(?:today|yesterday|morning|evening|night|am|pm|milk|sold|sale|sales)\b/ig, ''));
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
+function latestBuyerSaleRate(buyerId) {
+  const row = db.prepare(`SELECT rate_per_litre FROM milk_sales
+    WHERE buyer_id = ? AND COALESCE(rate_per_litre, 0) > 0
+    ORDER BY id DESC LIMIT 1`).get(buyerId);
+  return Number(row?.rate_per_litre || 0);
+}
+
 function buildMilkSalePlanFromMessage(message) {
   const text = String(message || '').toLowerCase();
   if (!/\b(sold|sell|sale|sales|buyer|customer|milk\s*sale)\b/.test(text)) return null;
@@ -271,9 +365,40 @@ function buildMilkSalePlanFromMessage(message) {
   const litres = parseLitres(message);
   const entryDate = getEntryDateForWrite(message);
   const shift = parseShift(message) || 'Morning';
-  if (!buyer || !litres || !entryDate) return null;
-  const rate = parseRate(message) || Number(buyer.default_rate || 0);
-  if (!rate) return null;
+  const mentionedBuyerName = extractBuyerNameFromSaleMessage(message);
+
+  if (!buyer) {
+    return {
+      reply: mentionedBuyerName
+        ? `I couldn't find buyer ${mentionedBuyerName}. Add it first like: add buyer named ${mentionedBuyerName}`
+        : 'I need the buyer name to save this milk sale.',
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+  if (!litres || !entryDate) {
+    return {
+      reply: 'I found the buyer, but I need the sale date and litres to save the milk sale.',
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+
+  const rate = parseRate(message) || Number(buyer.default_rate || 0) || latestBuyerSaleRate(buyer.id);
+  if (!rate) {
+    return {
+      reply: `I found buyer ${buyer.name}, but no default milk rate is saved. Please include the rate, for example: ${litres} liter sold to ${buyer.name} at 45 on ${entryDate}.`,
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+
   const income = Number((litres * rate).toFixed(2));
   return {
     reply: `Added milk sale: ${litres} litres to ${buyer.name} on ${entryDate} ${shift.toLowerCase()} shift at ₹${rate}/L. Income ₹${income}.`,
@@ -376,7 +501,8 @@ function buildDirectMilkPlanFromMessage(message) {
 }
 
 function buildDailyEntryPlanFromMessage(message) {
-  return buildCowWiseMilkPlanFromMessage(message)
+  return buildBuyerPlanFromMessage(message)
+    || buildCowWiseMilkPlanFromMessage(message)
     || buildMilkSalePlanFromMessage(message)
     || buildFoodExpensePlanFromMessage(message)
     || buildCommonExpensePlanFromMessage(message)
@@ -447,7 +573,8 @@ function validateBusinessPlanForVisibility(userMessage, plan) {
   if (!planHasWrite(plan)) return null;
   const message = String(userMessage || '').toLowerCase();
   const actions = Array.isArray(plan?.actions) ? plan.actions : [];
-  const wantsSale = /\b(sales?|sell|sold|buyer|customer|aavin|payment for milk)\b/.test(message);
+  const wantsBuyerCreate = Boolean(parseBuyerNameForCreate(userMessage));
+  const wantsSale = !wantsBuyerCreate && /\b(sales?|sell|sold|customer|aavin|payment for milk)\b/.test(message);
   const wantsCowWiseMilk = (/(cow\s*wise|cow-wise|\bcow\b|\bcows\b|\bmilked\b)/.test(message) || messageMentionsKnownCow(userMessage))
     && /\b(milk|litre|liter|litres|liters|production|produced|yield)\b/.test(message)
     && !/\bdirect\b/.test(message);
