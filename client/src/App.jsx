@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, Baby, Bot, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, LogOut, Menu, MessageCircle, Milk, NotebookPen, Pencil, Plus, Printer, Send, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, Users, Wallet, X } from 'lucide-react';
+import { Activity, Baby, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, LogOut, Menu, Milk, NotebookPen, Pencil, Plus, Printer, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, Users, Wallet, X } from 'lucide-react';
 import { api, storage } from './api/client';
 import { useAuth } from './context/AuthContext';
 import { currency, exportBusinessRegisterExcel, exportDetailedDailyPdf, litres, today, exportSingleCowPdf, exportAllCowsPdf, exportSingleCalfPdf, exportAllCalvesPdf } from './lib/utils';
@@ -110,25 +110,6 @@ function App() {
   const cowCollectionRef = useRef(null);
   const milkSalesRef = useRef(null);
   const dailyExpensesRef = useRef(null);
-  const [farmAgentOpen, setFarmAgentOpen] = useState(false);
-  const [farmAgentInput, setFarmAgentInput] = useState('');
-  const [farmAgentBusy, setFarmAgentBusy] = useState(false);
-  const [farmAgentMode, setFarmAgentMode] = useState(() => localStorage.getItem('milk_business_farm_agent_mode') || 'server');
-  const [farmAgentSessionId, setFarmAgentSessionId] = useState(() => localStorage.getItem('milk_business_farm_agent_session_id') || '');
-  const [farmAgentModelConfig, setFarmAgentModelConfig] = useState(() => {
-    try {
-      return { provider: 'local', model: 'client-agent', baseUrl: '', apiKey: '', ...JSON.parse(localStorage.getItem('milk_business_farm_agent_model') || '{}') };
-    } catch {
-      return { provider: 'local', model: 'client-agent', baseUrl: '', apiKey: '' };
-    }
-  });
-  const [farmAgentMessages, setFarmAgentMessages] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('milk_business_farm_agent_chat') || '[]');
-      if (Array.isArray(saved) && saved.length) return saved.slice(-30);
-    } catch {}
-    return [{ role: 'assistant', text: 'Hi bro, I am your farm agent. Ask me for summary, analysis, or say things like "add today milk 25 litres", "add sale 10 litres to Kumar rate 45", "add expense feed 300".' }];
-  });
 
   async function loadCowHistory(cowId) {
     if (!cowId) {
@@ -147,18 +128,6 @@ function App() {
   }
 
   useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
-  useEffect(() => {
-    localStorage.setItem('milk_business_farm_agent_chat', JSON.stringify(farmAgentMessages.slice(-30)));
-  }, [farmAgentMessages]);
-  useEffect(() => {
-    localStorage.setItem('milk_business_farm_agent_mode', farmAgentMode);
-  }, [farmAgentMode]);
-  useEffect(() => {
-    localStorage.setItem('milk_business_farm_agent_model', JSON.stringify(farmAgentModelConfig));
-  }, [farmAgentModelConfig]);
-  useEffect(() => {
-    if (farmAgentSessionId) localStorage.setItem('milk_business_farm_agent_session_id', farmAgentSessionId);
-  }, [farmAgentSessionId]);
   useEffect(() => { if (user) refresh(today(), true); }, [user]);
   useEffect(() => { setMobileNavOpen(false); }, [tab]);
   useEffect(() => {
@@ -423,10 +392,9 @@ function App() {
     await refresh(today(), true);
   }
 
-  async function saveDailyWithForm(formToSave = dailyForm, successText = 'Daily entry saved') {
+  async function saveDaily() {
     try {
-      const formCowTotal = (formToSave.cowEntries || []).reduce((sum, item) => sum + Number(item.total_litres || 0), 0);
-      const blockedFeedExpenses = (formToSave.expenses || []).filter((row) => {
+      const blockedFeedExpenses = dailyForm.expenses.filter((row) => {
         if ((row.expense_type || 'common') !== 'feed' || !row.cow_id) return false;
         const cow = state.cows.find((c) => String(c.id) === String(row.cow_id));
         return cow && (cow.status === 'Sold' || cow.status === 'Deceased');
@@ -437,19 +405,19 @@ function App() {
           return cow ? `"${cow.name} (${cow.status})"` : row.cow_id;
         });
         notify(`Cannot add food expense for ${cowNames.join(', ')} — cow is ${blockedFeedExpenses[0].cow_id ? state.cows.find((c) => String(c.id) === String(blockedFeedExpenses[0].cow_id))?.status?.toLowerCase() : 'unavailable'}`);
-        return false;
+        return;
       }
       const payload = {
-        ...formToSave,
-        total_milk_litres: Number(formToSave.entry_mode === 'cows' ? formCowTotal : (formToSave.total_milk_litres || 0)),
-        cowEntries: formToSave.entry_mode === 'cows'
-          ? (formToSave.cowEntries || []).filter((row) => row.cow_id && row.total_litres).map((row) => ({
+        ...dailyForm,
+        total_milk_litres: Number(dailyForm.entry_mode === 'cows' ? dailyCowTotal : (dailyForm.total_milk_litres || 0)),
+        cowEntries: dailyForm.entry_mode === 'cows'
+          ? dailyForm.cowEntries.filter((row) => row.cow_id && row.total_litres).map((row) => ({
               ...row,
               total_litres: Number(row.total_litres || 0)
             }))
           : [],
-        milkSales: (formToSave.milkSales || []).filter((row) => row.buyer_id && row.litres).map((row) => ({ ...row, litres: Number(row.litres || 0), rate_per_litre: Number(row.rate_per_litre || 0) })),
-        expenses: mergeExpenseRows((formToSave.expenses || [])
+        milkSales: dailyForm.milkSales.filter((row) => row.buyer_id && row.litres).map((row) => ({ ...row, litres: Number(row.litres || 0), rate_per_litre: Number(row.rate_per_litre || 0) })),
+        expenses: mergeExpenseRows(dailyForm.expenses
           .filter((row) => {
             if ((row.expense_type || 'common') === 'feed') {
               return row.cow_id && row.food_item_id && Number(row.quantity_kg || 0) > 0 && row.amount !== '' && row.amount !== null && row.amount !== undefined;
@@ -462,23 +430,16 @@ function App() {
             unit_rate: Number(row.unit_rate || 0),
             amount: Number(row.amount || 0)
           }))),
-        remaining_milk_usage: formToSave.remaining_milk_notes && !formToSave.remaining_milk_usage.includes(formToSave.remaining_milk_notes) 
-          ? `${formToSave.remaining_milk_usage} - ${formToSave.remaining_milk_notes}` 
-          : formToSave.remaining_milk_usage
+        remaining_milk_usage: dailyForm.remaining_milk_notes && !dailyForm.remaining_milk_usage.includes(dailyForm.remaining_milk_notes) 
+          ? `${dailyForm.remaining_milk_usage} - ${dailyForm.remaining_milk_notes}` 
+          : dailyForm.remaining_milk_usage
       };
       await api('/api/daily-entries', { method: 'POST', body: JSON.stringify(payload) });
-      setDailyForm(formToSave);
-      await refresh(formToSave.entry_date, true);
-      notify(successText);
-      return true;
+      await refresh(dailyForm.entry_date, true);
+      notify('Daily entry saved');
     } catch (error) {
       notify(error.message || 'Could not save daily entry');
-      return false;
     }
-  }
-
-  async function saveDaily() {
-    await saveDailyWithForm(dailyForm);
   }
 
   async function saveBuyer() {
@@ -1053,47 +1014,6 @@ function App() {
       return;
     }
     refreshReportsView();
-  }
-
-  async function sendFarmAgentMessage(textOverride) {
-    const text = (textOverride ?? farmAgentInput).trim();
-    if (!text || farmAgentBusy) return;
-    setFarmAgentInput('');
-    setFarmAgentBusy(true);
-    setFarmAgentMessages((items) => [...items, { role: 'user', text }]);
-    try {
-      if (farmAgentMode === 'server') {
-        const provider = farmAgentModelConfig.provider || 'local';
-        const baseUrl = farmAgentModelConfig.baseUrl || (provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : provider === 'openai-compatible' ? 'https://api.openai.com/v1' : '');
-        const model = farmAgentModelConfig.model || (provider === 'ollama' ? 'llama3.1' : provider === 'openai-compatible' ? 'gpt-4.1-mini' : 'client-agent');
-        const data = await api('/api/agent/chat', {
-          method: 'POST',
-          body: JSON.stringify({
-            message: text,
-            sessionId: farmAgentSessionId || null,
-            modelConfig: { ...farmAgentModelConfig, provider, baseUrl, model }
-          })
-        });
-        if (data.sessionId) setFarmAgentSessionId(String(data.sessionId));
-        setFarmAgentMessages((items) => [...items, { role: 'assistant', text: data.reply || 'Done bro.' }]);
-      } else {
-        const reply = await runClientFarmAgent(text, {
-          dashboard,
-          state,
-          dailyForm,
-          setDailyForm,
-          saveDailyWithForm,
-          changeTab,
-          refresh,
-          notify
-        });
-        setFarmAgentMessages((items) => [...items, { role: 'assistant', text: reply }]);
-      }
-    } catch (error) {
-      setFarmAgentMessages((items) => [...items, { role: 'assistant', text: error.message || 'I hit a problem. Please try again.' }]);
-    } finally {
-      setFarmAgentBusy(false);
-    }
   }
 
   if (loading) return <div className="min-h-screen grid place-items-center">Loading…</div>;
@@ -2295,343 +2215,9 @@ function App() {
           </motion.button>
         )}
       </AnimatePresence>
-      <FarmAgentChat
-        open={farmAgentOpen}
-        onToggle={() => setFarmAgentOpen((value) => !value)}
-        messages={farmAgentMessages}
-        input={farmAgentInput}
-        setInput={setFarmAgentInput}
-        busy={farmAgentBusy}
-        onSend={sendFarmAgentMessage}
-        onClear={() => {
-          setFarmAgentSessionId('');
-          localStorage.removeItem('milk_business_farm_agent_session_id');
-          setFarmAgentMessages([{ role: 'assistant', text: 'Fresh chat started bro. Tell me what to add or ask for analysis.' }]);
-        }}
-        mode={farmAgentMode}
-        setMode={setFarmAgentMode}
-        modelConfig={farmAgentModelConfig}
-        setModelConfig={setFarmAgentModelConfig}
-      />
-      {message && <div className="glass fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium">{message}</div>}
+      {message && <div className="glass fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium">{message}</div>}
     </div>
   );
-}
-
-function FarmAgentChat({ open, onToggle, messages, input, setInput, busy, onSend, onClear, mode, setMode, modelConfig, setModelConfig }) {
-  const scrollRef = useRef(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, open]);
-
-  const quickPrompts = ['Today summary', 'This month analysis', 'Add today milk 25 litres', 'Open daily entry'];
-
-  return (
-    <div className="fixed bottom-5 left-5 z-[65] max-w-[calc(100vw-2.5rem)] md:bottom-6 md:left-6">
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 18, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 18, scale: 0.96 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="mb-3 w-[min(92vw,420px)] overflow-hidden rounded-[2rem] border border-white/30 bg-white/92 shadow-2xl shadow-slate-950/20 backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/92"
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-gradient-to-r from-emerald-500/15 to-sky-500/15 p-4 dark:border-white/10">
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-400 p-2.5 text-slate-950 shadow-lg shadow-emerald-500/25"><Bot size={20} /></div>
-                <div>
-                  <div className="display-font text-base font-black">Farm Agent</div>
-                  <div className="text-xs opacity-60">Entry helper + analysis chat</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={onClear} className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-bold opacity-70 transition hover:opacity-100 dark:border-white/10">Clear</button>
-                <button onClick={onToggle} className="rounded-xl border border-slate-200 px-2.5 py-1.5 dark:border-white/10"><X size={16} /></button>
-              </div>
-            </div>
-
-            <div className="border-b border-slate-200/70 bg-slate-50/80 p-3 text-xs dark:border-white/10 dark:bg-slate-900/70">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="space-y-1 font-bold">
-                  <span className="opacity-60">Agent engine</span>
-                  <select value={mode} onChange={(event) => setMode(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold outline-none dark:border-white/10 dark:bg-slate-950">
-                    <option value="server">Server tool-agent</option>
-                    <option value="client">Fast client helper</option>
-                  </select>
-                </label>
-                <label className="space-y-1 font-bold">
-                  <span className="opacity-60">Model provider</span>
-                  <select value={modelConfig.provider || 'local'} onChange={(event) => setModelConfig((config) => ({ ...config, provider: event.target.value, model: event.target.value === 'local' ? 'client-agent' : config.model }))} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold outline-none dark:border-white/10 dark:bg-slate-950">
-                    <option value="local">Built-in safe agent</option>
-                    <option value="ollama">Ollama local model</option>
-                    <option value="openai-compatible">OpenAI-compatible / ChatGPT API</option>
-                  </select>
-                </label>
-              </div>
-              {mode === 'server' && modelConfig.provider !== 'local' && (
-                <div className="mt-2 grid gap-2">
-                  <input value={modelConfig.model || ''} onChange={(event) => setModelConfig((config) => ({ ...config, model: event.target.value }))} placeholder={modelConfig.provider === 'ollama' ? 'Model e.g. llama3.1' : 'Model e.g. gpt-4.1-mini'} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
-                  <input value={modelConfig.baseUrl || ''} onChange={(event) => setModelConfig((config) => ({ ...config, baseUrl: event.target.value }))} placeholder={modelConfig.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : 'https://api.openai.com/v1'} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />
-                  {modelConfig.provider === 'openai-compatible' && <input type="password" value={modelConfig.apiKey || ''} onChange={(event) => setModelConfig((config) => ({ ...config, apiKey: event.target.value }))} placeholder="API key / compatible proxy token" className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none dark:border-white/10 dark:bg-slate-950" />}
-                  <p className="opacity-60">Note: ChatGPT Plus/Codex OAuth is not a normal app API. This supports API keys, Ollama, or any OpenAI-compatible local proxy.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="max-h-[52vh] space-y-3 overflow-y-auto p-4">
-              {messages.map((item, index) => (
-                <div key={`${item.role}-${index}`} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[86%] whitespace-pre-line rounded-3xl px-4 py-3 text-sm leading-relaxed shadow-sm ${item.role === 'user' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'border border-slate-200/80 bg-slate-50 text-slate-800 dark:border-white/10 dark:bg-slate-900 dark:text-slate-100'}`}>
-                    {item.text}
-                  </div>
-                </div>
-              ))}
-              {busy && <div className="text-xs font-semibold opacity-60">Farm Agent is thinking…</div>}
-              <div ref={scrollRef} />
-            </div>
-
-            <div className="border-t border-slate-200/70 p-3 dark:border-white/10">
-              <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
-                {quickPrompts.map((prompt) => (
-                  <button key={prompt} onClick={() => onSend(prompt)} className="shrink-0 rounded-full border border-emerald-300/50 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200">
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-              <form onSubmit={(event) => { event.preventDefault(); onSend(); }} className="flex items-end gap-2">
-                <textarea
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      onSend();
-                    }
-                  }}
-                  rows={2}
-                  placeholder="Tell agent: add milk, add sale, ask analysis..."
-                  className="min-h-[48px] flex-1 resize-none rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm outline-none ring-emerald-400/40 transition focus:ring-4 dark:border-white/10 dark:bg-slate-900/80"
-                />
-                <button disabled={busy || !input.trim()} className="rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 p-3 text-slate-950 shadow-lg shadow-emerald-500/20 disabled:opacity-50">
-                  <Send size={18} />
-                </button>
-              </form>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <button onClick={onToggle} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-slate-950 to-slate-800 px-5 py-3.5 font-black text-white shadow-2xl shadow-slate-950/25 transition hover:-translate-y-0.5 dark:from-white dark:to-slate-200 dark:text-slate-950">
-        {open ? <X size={20} /> : <MessageCircle size={20} />}
-        {open ? 'Close Agent' : 'Farm Agent'}
-      </button>
-    </div>
-  );
-}
-
-async function runClientFarmAgent(rawText, context) {
-  const text = rawText.trim();
-  const lower = text.toLowerCase();
-  const { dashboard, state, dailyForm, setDailyForm, saveDailyWithForm, changeTab, refresh, notify } = context;
-
-  if (/\b(open|go to|show)\b.*\b(daily|entry)\b/.test(lower)) {
-    changeTab('daily');
-    return 'Opened Daily Entry bro. You can also tell me what to add, like "add today milk 25 litres".';
-  }
-  if (/\b(open|go to|show)\b.*\b(report|analysis)\b/.test(lower)) {
-    changeTab('reports');
-    return 'Opened Reports bro. Ask "this month analysis" if you want a quick explanation.';
-  }
-  if (/\b(open|go to|show)\b.*\b(dashboard|home)\b/.test(lower)) {
-    changeTab('dashboard');
-    return 'Opened Dashboard bro.';
-  }
-  if (/\b(help|examples|what can you do)\b/.test(lower)) {
-    return 'I can help inside this app bro:\n• add today milk 25 litres\n• add sale 10 litres to Kumar rate 45\n• add expense feed 300\n• show today summary\n• this month analysis\n• open daily entry / reports\n\nFor safety, I only use app data and allowed entry actions.';
-  }
-  if (/\b(summary|analysis|analyse|analyze|profit|dashboard|report|status)\b/.test(lower)) {
-    return buildFarmAgentAnalysis(dashboard, state, lower);
-  }
-
-  const amount = extractFirstNumber(text);
-  const wantsSave = /\b(add|save|record|enter|set)\b/.test(lower);
-  const entryDate = parseAgentDate(lower) || dailyForm.entry_date || today();
-
-  if (/\b(milk|litre|liter|ltr|ltrs|l)\b/.test(lower) && amount != null) {
-    const nextForm = {
-      ...dailyForm,
-      entry_date: entryDate,
-      entry_mode: 'direct',
-      total_milk_litres: amount,
-      notes: appendAgentNote(dailyForm.notes, `Agent: ${text}`)
-    };
-    if (wantsSave) {
-      const saved = await saveDailyWithForm(nextForm, 'Farm Agent saved milk entry');
-      return saved
-        ? `Done bro. Saved ${litres(amount)} total milk for ${entryDate}.`
-        : 'I tried to save the milk entry, but something failed. Check the toast message.';
-    }
-    setDailyForm(nextForm);
-    changeTab('daily');
-    notify('Farm Agent filled milk entry');
-    return `I filled ${litres(amount)} milk for ${entryDate}. Review it in Daily Entry and press Save.`;
-  }
-
-  if (/\b(sale|sell|sold|buyer)\b/.test(lower) && amount != null) {
-    const buyer = findNamedItem(state.buyers || [], lower) || (state.buyers || [])[0];
-    if (!buyer) return 'I can add sale, but no buyer exists yet. Add a buyer first bro.';
-    const rateMatch = lower.match(/(?:rate|rs|₹|price)\s*(\d+(?:\.\d+)?)/i);
-    const rate = Number(rateMatch?.[1] || buyer.default_rate || 0);
-    const nextForm = {
-      ...dailyForm,
-      entry_date: entryDate,
-      milkSales: [
-        ...(dailyForm.milkSales || []),
-        { ...createSaleRow(state.buyers || []), buyer_id: buyer.id, litres: amount, rate_per_litre: rate, notes: `Agent: ${text}` }
-      ]
-    };
-    const saved = wantsSave ? await saveDailyWithForm(nextForm, 'Farm Agent saved milk sale') : false;
-    if (!wantsSave) {
-      setDailyForm(nextForm);
-      changeTab('daily');
-      notify('Farm Agent filled milk sale');
-    }
-    return wantsSave && saved
-      ? `Done bro. Saved sale: ${litres(amount)} to ${buyer.name} at ${currency(rate)}/L.`
-      : `I filled sale: ${litres(amount)} to ${buyer.name} at ${currency(rate)}/L. Review and save in Daily Entry.`;
-  }
-
-  if (/\b(expense|spent|cost|paid|feed|food)\b/.test(lower) && amount != null) {
-    const isFeed = /\b(feed|food|fodder|grass|hay|powder)\b/.test(lower);
-    if (isFeed) {
-      const cow = findNamedItem(state.cows || [], lower) || (state.cows || []).find((item) => item.status !== 'Sold' && item.status !== 'Deceased');
-      const food = findNamedItem(state.foods || [], lower) || (state.foods || [])[0];
-      if (!cow || !food) return 'I can add feed expense, but I need at least one active cow and one feed item saved first bro.';
-      const snapshot = resolveFoodSnapshot(state.foods || [], food.id, entryDate) || {};
-      const qtyMatch = lower.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|kilogram)/i);
-      const qty = Number(qtyMatch?.[1] || 1);
-      const nextForm = {
-        ...dailyForm,
-        entry_date: entryDate,
-        expenses: [
-          ...(dailyForm.expenses || []),
-          {
-            ...createExpenseRow(state.categories || [], state.foods || [], state.cows || [], 'feed', entryDate),
-            cow_id: cow.id,
-            food_item_id: food.id,
-            food_price_history_id: snapshot.food_price_history_id || null,
-            food_name_snapshot: snapshot.food_name_snapshot || food.name,
-            unit_type_snapshot: snapshot.unit_type_snapshot || food.unit_type || 'kg',
-            rate_effective_from: snapshot.rate_effective_from || null,
-            quantity_kg: qty,
-            unit_rate: Number(snapshot.unit_rate || amount / Math.max(qty, 1)),
-            amount,
-            description: `Agent: ${text}`
-          }
-        ]
-      };
-      const saved = wantsSave ? await saveDailyWithForm(nextForm, 'Farm Agent saved feed expense') : false;
-      if (!wantsSave) {
-        setDailyForm(nextForm);
-        changeTab('daily');
-        notify('Farm Agent filled feed expense');
-      }
-      return wantsSave && saved
-        ? `Done bro. Saved feed expense ${currency(amount)} for ${cow.name}.`
-        : `I filled feed expense ${currency(amount)} for ${cow.name}. Review and save in Daily Entry.`;
-    }
-
-    const category = findNamedItem(state.categories || [], lower) || (state.categories || [])[0];
-    if (!category) return 'I can add expense, but no expense category exists yet. Add one category first bro.';
-    const nextForm = {
-      ...dailyForm,
-      entry_date: entryDate,
-      expenses: [
-        ...(dailyForm.expenses || []),
-        { ...createExpenseRow(state.categories || [], state.foods || [], state.cows || [], 'common', entryDate), category_id: category.id, amount, description: `Agent: ${text}` }
-      ]
-    };
-    const saved = wantsSave ? await saveDailyWithForm(nextForm, 'Farm Agent saved expense') : false;
-    if (!wantsSave) {
-      setDailyForm(nextForm);
-      changeTab('daily');
-      notify('Farm Agent filled expense');
-    }
-    return wantsSave && saved
-      ? `Done bro. Saved ${category.name} expense ${currency(amount)}.`
-      : `I filled ${category.name} expense ${currency(amount)}. Review and save in Daily Entry.`;
-  }
-
-  await refresh(dailyForm.entry_date || today(), true).catch(() => {});
-  return 'Got you bro. I am a client-side farm agent now. Try: "add today milk 25 litres", "add sale 10 litres to buyer rate 45", or "today summary".';
-}
-
-function extractFirstNumber(value) {
-  const match = String(value).match(/(\d+(?:\.\d+)?)/);
-  return match ? Number(match[1]) : null;
-}
-
-function parseAgentDate(lower) {
-  if (/\btoday\b/.test(lower)) return today();
-  if (/\byesterday\b/.test(lower)) {
-    const date = new Date();
-    date.setDate(date.getDate() - 1);
-    return format(date, 'yyyy-MM-dd');
-  }
-  const iso = lower.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-  return iso?.[1] || null;
-}
-
-function normalizeName(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function findNamedItem(items, lowerText) {
-  const normalizedText = normalizeName(lowerText);
-  return items.find((item) => {
-    const name = normalizeName(item.name);
-    return name && normalizedText.includes(name);
-  }) || null;
-}
-
-function appendAgentNote(existing, note) {
-  return [existing, note].filter(Boolean).join('\n');
-}
-
-function buildFarmAgentAnalysis(dashboard, state, lower) {
-  if (!dashboard) return 'Dashboard is still loading bro. Try again in a second.';
-  const trend = dashboard.charts?.trend || [];
-  const bestDay = trend.reduce((best, day) => (!best || Number(day.profit || 0) > Number(best.profit || 0) ? day : best), null);
-  const weakDay = trend.reduce((worst, day) => (!worst || Number(day.profit || 0) < Number(worst.profit || 0) ? day : worst), null);
-  const activeCows = (state.cows || []).filter((cow) => !['Sold', 'Deceased'].includes(cow.status)).length;
-  const savedDays = state.dailyData?.length || 0;
-
-  const lines = [];
-  if (/month|monthly/.test(lower)) {
-    lines.push('This month analysis:');
-    lines.push(`• Milk: ${litres(dashboard.monthly.milk)}`);
-    lines.push(`• Income: ${currency(dashboard.monthly.income)}`);
-    lines.push(`• Expenses: ${currency(dashboard.monthly.expenses)}`);
-    lines.push(`• Profit/Loss: ${currency(dashboard.monthly.profit)} (${dashboard.monthly.profitMargin}% margin)`);
-  } else {
-    lines.push('Today summary:');
-    lines.push(`• Milk: ${litres(dashboard.today.totalMilkLitres)}`);
-    lines.push(`• Remaining: ${litres(dashboard.today.remainingMilkLitres)}`);
-    lines.push(`• Income: ${currency(dashboard.today.totalIncome)}`);
-    lines.push(`• Expenses: ${currency(dashboard.today.totalExpenses)}`);
-    lines.push(`• Profit/Loss: ${currency(dashboard.today.profit)}`);
-  }
-
-  lines.push('');
-  lines.push('Agent insight:');
-  if (bestDay) lines.push(`• Best profit day: ${bestDay.date} (${currency(bestDay.profit)})`);
-  if (weakDay) lines.push(`• Weakest day: ${weakDay.date} (${currency(weakDay.profit)})`);
-  lines.push(`• Active cows/calves records: ${activeCows}`);
-  lines.push(`• Saved daily records: ${savedDays}`);
-  lines.push(dashboard.monthly.profit >= 0 ? '• Overall this month is positive bro.' : '• This month is negative bro, check expense-heavy days and unsold/remaining milk.');
-  return lines.join('\n');
 }
 
 function getExportMeta(reportPreset, reportMeta) {

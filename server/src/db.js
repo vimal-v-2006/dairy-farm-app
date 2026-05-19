@@ -196,27 +196,6 @@ function initDb() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE TABLE IF NOT EXISTS agent_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT DEFAULT 'Farm Agent Chat',
-      model_provider TEXT DEFAULT 'local',
-      model_name TEXT DEFAULT 'client-agent',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tool_name TEXT,
-      tool_payload TEXT,
-      tool_result TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
-    );
   `);
 
   const investmentColumns = db.prepare("PRAGMA table_info(investments)").all();
