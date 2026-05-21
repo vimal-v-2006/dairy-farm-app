@@ -231,6 +231,17 @@ function AuthScreen() {
   );
 }
 
+const defaultAiMessages = [
+  { role: 'assistant', content: 'Ask me anything about your dairy database. I can read reports and safely add or update records through the backend AI agent.' }
+];
+
+function compactAiHistory(messages) {
+  return messages
+    .filter((item) => ['user', 'assistant'].includes(item?.role) && String(item?.content || '').trim())
+    .slice(-12)
+    .map((item) => ({ role: item.role, content: String(item.content).slice(0, 2000) }));
+}
+
 function App() {
   const { user, loading, logout } = useAuth();
   const [tab, setTab] = useState('dashboard');
@@ -265,9 +276,7 @@ function App() {
   const [selectedCalfRecordId, setSelectedCalfRecordId] = useState(null);
   const [cowHistory, setCowHistory] = useState([]);
   const [cowHistoryLoading, setCowHistoryLoading] = useState(false);
-  const [aiMessages, setAiMessages] = useState([
-    { role: 'assistant', content: 'Ask me anything about your dairy database. I can read reports and safely add or update records through the backend AI agent.' }
-  ]);
+  const [aiMessages, setAiMessages] = useState(defaultAiMessages);
   const [aiInput, setAiInput] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const aiChatListRef = useRef(null);
@@ -372,9 +381,10 @@ function App() {
     if (!text || aiBusy) return;
     setAiInput('');
     setAiBusy(true);
+    const history = compactAiHistory(aiMessages);
     setAiMessages((prev) => [...prev, { role: 'user', content: text }]);
     try {
-      const data = await api('/api/ai/chat', { method: 'POST', body: JSON.stringify({ message: text }) });
+      const data = await api('/api/ai/chat', { method: 'POST', body: JSON.stringify({ message: text, history }) });
       setAiMessages((prev) => [...prev, {
         role: 'assistant',
         content: data.reply || 'Done.',

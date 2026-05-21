@@ -141,7 +141,9 @@ function parseMoneyAmount(message) {
     /₹\s*(\d+(?:\.\d+)?)/,
     /\brs\.?\s*(\d+(?:\.\d+)?)/,
     /\b(\d+(?:\.\d+)?)\s*(?:rupees|rs)\b/,
-    /\b(?:amount|expense|cost|paid|payment)\s*(?:is|of|for|=|:)?\s*(\d+(?:\.\d+)?)/
+    /\b(?:amount|expense|cost|paid|payment|bill|spent)\s*(?:is|of|for|=|:)?\s*(\d+(?:\.\d+)?)/,
+    /\b(?:medicine|medical|transport|repair|labou?r|electricity|maintenance)\D{0,30}(\d+(?:\.\d+)?)\b/,
+    /\b(\d+(?:\.\d+)?)\s*(?:for|on)\s*(?:medicine|medical|transport|repair|labou?r|electricity|maintenance)\b/
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -177,6 +179,54 @@ function parseQuantityKg(message) {
   return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
 }
 
+function cleanupEntityCandidate(value) {
+  return normalizeEntityName(String(value || '')
+    .replace(/\b\d+(?:\.\d+)?\s*(?:kg|kgs|kilogram|kilograms|rs|rupees)\b/gi, ' ')
+    .replace(/₹\s*\d+(?:\.\d+)?/g, ' ')
+    .replace(/\b(?:with|rate|at|per|qty|quantity|amount|cost|paid|payment|expense|for|to|on|today|yesterday|morning|evening|kg|kgs|kilogram|kilograms|rs|rupees)\b[\s\S]*$/i, '')
+    .replace(/[₹:=,/]+/g, ' ')
+    .trim());
+}
+
+function isUsefulEntityName(value) {
+  const name = normalizeEntityName(value);
+  if (!name || name.length < 2) return false;
+  return !/^(add|create|save|record|enter|food|feed|fodder|concentrate|silage|expense|cost|paid|payment|cow|cows|for|to|today|yesterday|morning|evening)$/i.test(name);
+}
+
+function parseCowNameCandidate(message) {
+  const raw = String(message || '');
+  const patterns = [
+    /^\s*([a-z0-9][a-z0-9 ._-]{1,60})\s+(?:ate|eats|fed|feeds|given|gave|consumed|had)\b/i,
+    /\bfor\s+(?:cow\s+)?([a-z0-9][a-z0-9 ._-]{1,60})\b/i,
+    /\bcow\s+(?:named|name|called|as)?\s*([a-z0-9][a-z0-9 ._-]{1,60})\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    const name = cleanupEntityCandidate(match?.[1]);
+    if (isUsefulEntityName(name)) return name;
+  }
+  return null;
+}
+
+function parseFoodNameCandidate(message) {
+  const raw = String(message || '');
+  const patterns = [
+    /\b(?:ate|eats|fed|feeds|given|gave|consumed|had)\s+\d+(?:\.\d+)?\s*(?:kg|kgs|kilogram|kilograms)?\s*(?:of\s+)?([a-z0-9][a-z0-9 ._-]{1,80})\b/i,
+    /\b(?:fed|feeding|consumption\s+of)\s+\d*(?:\.\d+)?\s*(?:kg|kgs|kilogram|kilograms)?\s*(?:of\s+)?([a-z0-9][a-z0-9 ._-]{1,80})\b/i,
+    /\b(?:feed|food|fodder|concentrate|silage)\s+(?:item\s+)?(?:named|name|called|as)?\s*([a-z0-9][a-z0-9 ._-]{1,80})\b/i,
+    /\b(?:add|save|record|enter)\s+(?:a\s+)?(?:feed|food)\s+expense\s+([a-z0-9][a-z0-9 ._-]{1,80})\b/i,
+    /\b(?:bought|buy|used|gave|given)\s+([a-z0-9][a-z0-9 ._-]{1,80})\s+(?:feed|food|fodder|concentrate|silage)?\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    let name = cleanupEntityCandidate(match?.[1]);
+    name = name.replace(/^(expense|item)\s+/i, '').trim();
+    if (isUsefulEntityName(name)) return normalizeEntityName(name);
+  }
+  return null;
+}
+
 function findMentionedBuyer(message) {
   const normalized = String(message || '').toLowerCase();
   const buyers = db.prepare("SELECT id, name, default_rate FROM buyers WHERE name IS NOT NULL AND TRIM(name) != '' AND COALESCE(active, 1) = 1 ORDER BY LENGTH(name) DESC").all();
@@ -190,20 +240,20 @@ function normalizeEntityName(name) {
 function parseBuyerNameForCreate(message) {
   const raw = String(message || '').trim();
   const text = raw.toLowerCase();
-  if (!/\b(add|create|save|new|insert)\b/.test(text) || !/\bbuyer\b/.test(text)) return null;
+  if (!/\b(add|create|save|new|insert)\b/.test(text) || !/\bbuyers?\b/.test(text)) return null;
   if (/\b(sold|sell|sale|sales|litre|liter|litres|liters|milk)\b/.test(text)) return null;
 
   const patterns = [
-    /\bbuyer\s+(?:named|name|called|as)\s+([a-z0-9][a-z0-9 ._-]{0,80})\b/i,
-    /\b(?:add|create|save|new|insert)\s+(?:a\s+)?buyer\s+([a-z0-9][a-z0-9 ._-]{0,80})\b/i,
-    /\b(?:add|create|save|new|insert)\s+([a-z0-9][a-z0-9 ._-]{0,80})\s+buyer\b/i
+    /\bbuyers?\s+(?:named|name|called|as)\s+([a-z0-9][a-z0-9 ._-]{0,80})\b/i,
+    /\b(?:add|create|save|new|insert)\s+(?:a\s+)?buyers?\s+([a-z0-9][a-z0-9 ._-]{0,80})\b/i,
+    /\b(?:add|create|save|new|insert)\s+([a-z0-9][a-z0-9 ._-]{0,80})\s+buyers?\b/i
   ];
 
   for (const pattern of patterns) {
     const match = raw.match(pattern);
     if (match?.[1]) {
       const name = normalizeEntityName(match[1].replace(/\b(?:with|rate|contact|location|notes?)\b[\s\S]*$/i, ''));
-      if (name && !/^buyer$/i.test(name)) return name;
+      if (name && !/^buyers?$/i.test(name)) return name;
     }
   }
   return null;
@@ -260,11 +310,43 @@ function findMentionedFood(message) {
   return foods.find((food) => new RegExp(`\\b${escapeRegex(String(food.name).toLowerCase())}\\b`).test(normalized)) || null;
 }
 
+function normalizeCategoryText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(expense|expenses|common|daily|add|save|record|enter|paid|payment|bill|cost|spent|today|yesterday|morning|evening|rs|rupees)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findCategoryByExistingName(message, categories) {
+  const text = normalizeCategoryText(message);
+  if (!text) return null;
+
+  const scored = categories.map((category) => {
+    const normalizedName = normalizeCategoryText(category.name);
+    if (!normalizedName) return { category, score: 0 };
+    const words = normalizedName.split(' ').filter(Boolean);
+    const matchedWords = words.filter((word) => new RegExp(`\\b${escapeRegex(word)}\\b`).test(text));
+    let score = 0;
+    if (text === normalizedName) score += 100;
+    if (new RegExp(`\\b${escapeRegex(normalizedName)}\\b`).test(text)) score += 80;
+    if (matchedWords.length === words.length) score += 50 + words.length;
+    score += matchedWords.length * 8;
+    return { category, score };
+  }).filter((item) => item.score > 0);
+
+  scored.sort((a, b) => b.score - a.score || String(b.category.name).length - String(a.category.name).length);
+  return scored[0]?.category || null;
+}
+
 function findExpenseCategory(message) {
   const text = String(message || '').toLowerCase();
   const categories = db.prepare("SELECT id, name FROM expense_categories WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY LENGTH(name) DESC").all();
-  const direct = categories.find((category) => new RegExp(`\b${escapeRegex(String(category.name).toLowerCase())}\b`).test(text));
+  const direct = categories.find((category) => new RegExp(`\\b${escapeRegex(String(category.name).toLowerCase())}\\b`).test(text));
   if (direct) return direct;
+  const existingNameMatch = findCategoryByExistingName(message, categories);
+  if (existingNameMatch) return existingNameMatch;
   const synonymMap = [
     { regex: /\b(medicine|medical|doctor|vet|veterinary|health|treatment)\b/, name: 'Medical expense' },
     { regex: /\b(feed|food|fodder|concentrate|silage|grass)\b/, name: 'Feed 1' },
@@ -445,30 +527,95 @@ function buildMilkSalePlanFromMessage(message) {
 function buildFoodExpensePlanFromMessage(message) {
   const text = String(message || '').toLowerCase();
   if (!/\b(feed|food|fodder|concentrate|silage|kg|kgs)\b/.test(text)) return null;
-  if (!/\b(expense|cost|paid|bought|buy|add|save|record|used|gave|given)\b/.test(text)) return null;
+  if (!/\b(expense|cost|paid|bought|buy|add|save|record|used|gave|given|ate|eats|fed|feeds|feeding|consumed|consumption)\b/.test(text)) return null;
   const food = findMentionedFood(message);
+  const foodName = food?.name || parseFoodNameCandidate(message);
   const cow = findMentionedCow(message);
+  const cowName = cow?.name || parseCowNameCandidate(message);
   const entryDate = getEntryDateForWrite(message);
   const shift = parseShift(message) || null;
   const quantityKg = parseQuantityKg(message) || 0;
   const typedRate = parseRate(message);
   const amountFromMessage = parseMoneyAmount(message);
-  if (!food || !entryDate || (!quantityKg && !amountFromMessage)) return null;
-  const snapshot = latestFoodSnapshot(food, entryDate);
-  const unitRate = typedRate || Number(snapshot?.unit_rate || 0);
+  if (!foodName || !entryDate || (!quantityKg && !amountFromMessage && !typedRate)) return null;
+  if (!cowName) {
+    return {
+      reply: 'Food expenses must be linked to a cow so they appear in the cow feed history. Please mention the cow name, food/feed item, quantity, and rate or amount.',
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+  const existingCow = cow || db.prepare('SELECT id, name FROM cows WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1').get(cowName);
+  const existingFood = food || db.prepare('SELECT id, name, rate_per_kg, unit_type FROM food_items WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1').get(foodName);
+  const resolvedFoodName = existingFood?.name || foodName;
+  const resolvedCowName = existingCow?.name || cowName;
+  const snapshot = existingFood ? latestFoodSnapshot(existingFood, entryDate) : null;
+  const unitRate = typedRate || Number(snapshot?.unit_rate || existingFood?.rate_per_kg || 0);
   const amount = quantityKg && unitRate ? Number((quantityKg * unitRate).toFixed(2)) : amountFromMessage;
-  if (!amount) return null;
-  const category = findExpenseCategory(message) || db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) LIKE 'feed%' ORDER BY id LIMIT 1").get();
+  if (!amount) {
+    return {
+      reply: `I found ${resolvedFoodName || foodName}${cowName ? ` for ${cowName}` : ''}, but I need a saved feed rate or an amount to calculate the food expense. Please include the rate, for example: ${cowName || 'Cow'} ate ${quantityKg || 1}kg of ${resolvedFoodName || foodName} at 25.`,
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+  const category = db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) LIKE 'feed%' ORDER BY id LIMIT 1").get()
+    || findExpenseCategory(message)
+    || db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) = 'other expense' LIMIT 1").get();
+  if (!category?.id) {
+    return {
+      reply: 'I could not find a feed expense category. Please create a Feed category first, then I can save this food expense correctly.',
+      actions: [],
+      readOnly: true,
+      expectsConfirmation: false,
+      deterministicRepair: true
+    };
+  }
+  const foodIdSql = existingFood?.id
+    ? String(Number(existingFood.id))
+    : `(SELECT id FROM food_items WHERE LOWER(TRIM(name)) = LOWER(${sqlQuote(resolvedFoodName)}) LIMIT 1)`;
+  const cowIdSql = existingCow?.id
+    ? String(Number(existingCow.id))
+    : `(SELECT id FROM cows WHERE LOWER(TRIM(name)) = LOWER(${sqlQuote(resolvedCowName)}) LIMIT 1)`;
+  const foodHistoryIdSql = existingFood && snapshot?.food_price_history_id
+    ? String(Number(snapshot.food_price_history_id))
+    : `(SELECT id FROM food_price_history WHERE food_item_id = ${foodIdSql} AND date(effective_from) <= date(${sqlQuote(entryDate)}) ORDER BY datetime(effective_from) DESC, id DESC LIMIT 1)`;
+  const unitType = snapshot?.unit_type_snapshot || existingFood?.unit_type || 'kg';
+  const rateEffectiveFrom = snapshot?.rate_effective_from || `${entryDate} 23:59:59`;
+  const actions = [
+    ensureDailyEntryAction(entryDate)
+  ];
+  if (!existingCow) {
+    actions.push({
+      sql: `INSERT OR IGNORE INTO cows (name, status, status_date, notes) VALUES (${sqlQuote(resolvedCowName)}, 'Lactating', ${sqlQuote(entryDate)}, 'Created by AI assistant for feed expense')`,
+      purpose: `Create cow ${resolvedCowName} so the feed expense can be linked to cow feed history.`,
+      requiresConfirmation: false
+    });
+  }
+  if (!existingFood) {
+    actions.push({
+      sql: `INSERT OR IGNORE INTO food_items (name, purchase_kg, purchase_amount, rate_per_kg, unit_type, notes) VALUES (${sqlQuote(resolvedFoodName)}, 0, 0, ${Number(unitRate || 0)}, 'kg', 'Created by AI assistant from daily food expense')`,
+      purpose: `Create feed item ${resolvedFoodName} so the food expense can use the same catalogue as the Daily Entry form.`,
+      requiresConfirmation: false
+    });
+    actions.push({
+      sql: `INSERT INTO food_price_history (food_item_id, purchase_quantity, purchase_amount, unit_rate, unit_type, effective_from, notes) SELECT id, ${Number(quantityKg || 0)}, ${Number(amount || 0)}, ${Number(unitRate || 0)}, 'kg', datetime(${sqlQuote(entryDate)} || ' 23:59:59'), 'Created by AI assistant from daily food expense' FROM food_items WHERE LOWER(TRIM(name)) = LOWER(${sqlQuote(resolvedFoodName)}) AND NOT EXISTS (SELECT 1 FROM food_price_history WHERE food_item_id = food_items.id AND unit_rate = ${Number(unitRate || 0)} AND date(effective_from) = date(${sqlQuote(entryDate)}))`,
+      purpose: `Create price history for ${resolvedFoodName} so historical feed rates work in Daily Entry.`,
+      requiresConfirmation: false
+    });
+  }
+  actions.push({
+    sql: `INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) SELECT id, ${category?.id ? Number(category.id) : 'NULL'}, 'feed', ${cowIdSql}, ${foodIdSql}, ${foodHistoryIdSql}, ${sqlQuote(resolvedFoodName)}, ${sqlQuote(unitType)}, ${sqlQuote(rateEffectiveFrom)}, ${Number(quantityKg || 0)}, ${Number(unitRate || 0)}, ${Number(amount)}, ${shift ? sqlQuote(shift) : 'NULL'}, ${sqlQuote('Added by AI assistant')}, 'Cash', NULL FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
+    purpose: 'Insert food/feed expense row linked to cow, feed item, price snapshot, and daily entry.',
+    requiresConfirmation: false
+  });
   return {
-    reply: `Added food expense on ${entryDate}: ${food.name}${cow ? ` for ${cow.name}` : ''}${quantityKg ? `, ${quantityKg} kg` : ''}, amount ₹${amount}.`,
-    actions: [
-      ensureDailyEntryAction(entryDate),
-      {
-        sql: `INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) SELECT id, ${category?.id ? Number(category.id) : 'NULL'}, 'feed', ${cow?.id ? Number(cow.id) : 'NULL'}, ${Number(food.id)}, ${snapshot?.food_price_history_id ? Number(snapshot.food_price_history_id) : 'NULL'}, ${sqlQuote(snapshot?.food_name_snapshot || food.name)}, ${sqlQuote(snapshot?.unit_type_snapshot || food.unit_type || 'kg')}, ${snapshot?.rate_effective_from ? sqlQuote(snapshot.rate_effective_from) : 'NULL'}, ${Number(quantityKg || 0)}, ${Number(unitRate || 0)}, ${Number(amount)}, ${shift ? sqlQuote(shift) : 'NULL'}, ${sqlQuote('Added by AI assistant')}, 'Cash', NULL FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
-        purpose: 'Insert food/feed expense row so it appears in Daily expenses and reports.',
-        requiresConfirmation: false
-      }
-    ],
+    reply: `Added food expense on ${entryDate}: ${resolvedFoodName} for ${resolvedCowName}${quantityKg ? `, ${quantityKg} kg` : ''}, amount ₹${amount}.`,
+    actions,
     readOnly: false,
     expectsConfirmation: false,
     deterministicRepair: true
@@ -477,21 +624,24 @@ function buildFoodExpensePlanFromMessage(message) {
 
 function buildCommonExpensePlanFromMessage(message) {
   const text = String(message || '').toLowerCase();
-  if (!/\b(expense|cost|paid|payment|bill|spent|medicine|medical|transport|repair|labour|labor|electricity|maintenance)\b/.test(text)) return null;
   if (/\b(feed|food|fodder|concentrate|silage|kg|kgs)\b/.test(text)) return null;
   const entryDate = getEntryDateForWrite(message);
   const amount = parseMoneyAmount(message);
+  const category = findExpenseCategory(message);
+  const looksLikeCommonExpense = /\b(expense|cost|paid|payment|bill|spent|medicine|medical|transport|repair|labour|labor|electricity|maintenance)\b/.test(text)
+    || (category && /\b(add|save|record|enter|paid|payment|bill|cost|spent|expense)\b/.test(text));
+  if (!looksLikeCommonExpense) return null;
   if (!entryDate || !amount) return null;
-  const category = findExpenseCategory(message) || db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) = 'other expense' LIMIT 1").get();
+  const resolvedCategory = category || db.prepare("SELECT id, name FROM expense_categories WHERE LOWER(name) = 'other expense' LIMIT 1").get();
   const cow = findMentionedCow(message);
   const shift = parseShift(message) || null;
-  const description = category?.name ? `${category.name} added by AI assistant` : 'Added by AI assistant';
+  const description = resolvedCategory?.name ? `${resolvedCategory.name} added by AI assistant` : 'Added by AI assistant';
   return {
-    reply: `Added ${category?.name || 'expense'} on ${entryDate}${cow ? ` for ${cow.name}` : ''}: ₹${amount}.`,
+    reply: `Added ${resolvedCategory?.name || 'expense'} on ${entryDate}${cow ? ` for ${cow.name}` : ''}: ₹${amount}.`,
     actions: [
       ensureDailyEntryAction(entryDate),
       {
-        sql: `INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) SELECT id, ${category?.id ? Number(category.id) : 'NULL'}, 'common', ${cow?.id ? Number(cow.id) : 'NULL'}, NULL, NULL, NULL, NULL, NULL, 0, 0, ${Number(amount)}, ${shift ? sqlQuote(shift) : 'NULL'}, ${sqlQuote(description)}, 'Cash', NULL FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
+        sql: `INSERT INTO expenses (daily_entry_id, category_id, expense_type, cow_id, food_item_id, food_price_history_id, food_name_snapshot, unit_type_snapshot, rate_effective_from, quantity_kg, unit_rate, amount, entry_shift, description, payment_mode, bill_path) SELECT id, ${resolvedCategory?.id ? Number(resolvedCategory.id) : 'NULL'}, 'common', ${cow?.id ? Number(cow.id) : 'NULL'}, NULL, NULL, NULL, NULL, NULL, 0, 0, ${Number(amount)}, ${shift ? sqlQuote(shift) : 'NULL'}, ${sqlQuote(description)}, 'Cash', NULL FROM daily_entries WHERE entry_date = ${sqlQuote(entryDate)}`,
         purpose: 'Insert common expense row so it appears in Daily expenses and reports.',
         requiresConfirmation: false
       }
@@ -581,6 +731,68 @@ function insertColumnsForTable(action, tableName) {
   return match[1].split(',').map((column) => column.trim().replace(/[`"\[\]]/g, '').toLowerCase());
 }
 
+function topLevelCommaSplit(value) {
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  let quote = null;
+
+  for (let index = 0; index < String(value || '').length; index += 1) {
+    const char = value[index];
+    const next = value[index + 1];
+
+    if (quote) {
+      current += char;
+      if (char === quote) {
+        if (next === quote) {
+          current += next;
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    if (char === '\'' || char === '"') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === '(') depth += 1;
+    if (char === ')') depth = Math.max(0, depth - 1);
+    if (char === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function getInsertValueForColumn(action, tableName, columnName) {
+  const columns = insertColumnsForTable(action, tableName);
+  const columnIndex = columns.indexOf(columnName);
+  if (columnIndex < 0) return null;
+
+  const sql = String(action?.sql || action || '').trim();
+  const valuesMatch = sql.match(/\bVALUES\s*\(([\s\S]*)\)\s*$/i);
+  if (valuesMatch) return topLevelCommaSplit(valuesMatch[1])[columnIndex] || null;
+
+  const selectMatch = sql.match(/\bSELECT\b\s+([\s\S]+?)\s+\bFROM\b/i);
+  if (selectMatch) return topLevelCommaSplit(selectMatch[1])[columnIndex] || null;
+
+  return null;
+}
+
+function insertColumnIsNull(action, tableName, columnName) {
+  const value = getInsertValueForColumn(action, tableName, columnName);
+  return value == null || /^NULL$/i.test(String(value).trim());
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -623,6 +835,16 @@ function validateBusinessPlanForVisibility(userMessage, plan) {
     return 'Cow-wise milk entries need a cow name/id so they appear correctly. Please mention which cow produced the milk.';
   }
 
+  const expenseInserts = actions.filter((action) => getActionTable(action) === 'expenses' && /^INSERT\b/i.test(String(action.sql || action || '').trim()));
+  if (expenseInserts.some((action) => !insertColumnsForTable(action, 'expenses').includes('category_id') || insertColumnIsNull(action, 'expenses', 'category_id'))) {
+    return 'Daily expenses must use an existing expense category so they do not appear as Unknown category. Please mention the category or feed item clearly.';
+  }
+
+  const feedExpenseInserts = expenseInserts.filter((action) => String(getInsertValueForColumn(action, 'expenses', 'expense_type') || '').replace(/['"]/g, '').toLowerCase() === 'feed');
+  if (feedExpenseInserts.some((action) => insertColumnIsNull(action, 'expenses', 'cow_id') || insertColumnIsNull(action, 'expenses', 'food_item_id'))) {
+    return 'Food expenses must link to both a cow and a food/feed item so they appear in Daily expenses and cow feed history.';
+  }
+
   return null;
 }
 
@@ -637,6 +859,7 @@ CURRENT DATE: ${todayIsoDate()}
 
 ANSWERING COMPLEX QUESTIONS:
 - For any analytical/reporting question (totals, averages, comparisons, rankings, trends, profit/loss, best/worst cow, monthly summary, date ranges), always generate a SELECT query — do not say "I cannot answer".
+- You can answer from every APP DATA TABLE in the schema: cows, buyers, expense categories, feed/food, food price history, calves, calf expenses, daily entries, cow milk entries, milk sales, expenses, investments, and cow update history.
 - Use SQLite aggregate functions: SUM(), AVG(), COUNT(), MAX(), MIN(), GROUP BY, ORDER BY, LIMIT.
 - For monthly/weekly trends: use strftime('%Y-%m', entry_date) for grouping.
 - For cow rankings: JOIN cow_milk_entries with cows, GROUP BY cow_id, ORDER BY SUM(total_litres) DESC.
@@ -654,8 +877,9 @@ MISSING ENTITY HANDLING:
 
 SECURITY AND EXECUTION RULES:
 - The frontend never touches the database. You are inside the backend.
-- Allowed SQL only: SELECT, INSERT, UPDATE, DELETE.
+- Allowed SQL only: SELECT, INSERT, UPDATE, DELETE on APP DATA TABLES.
 - Never generate DROP, ALTER, CREATE, PRAGMA, VACUUM, ATTACH, DETACH, schema changes, or multiple statements in one SQL string.
+- Never query or write the authentication users table, password_hash, JWTs, secrets, database paths, or server environment details.
 - UPDATE and DELETE must always include a precise WHERE clause.
 - DELETE is dangerous: first SELECT matching rows and set requiresConfirmation true unless the user is already confirming a pending delete.
 - Normal safe INSERTs may execute without confirmation.
@@ -666,8 +890,12 @@ SECURITY AND EXECUTION RULES:
 - For milk sales: ensure a daily_entries row exists, then write milk_sales with an existing buyer_id, litres, rate_per_litre, income, payment_status, and entry_shift.
 - For milk sales: income = litres * rate_per_litre.
 - For cow milk entries: total_litres should be the entered total, or morning_litres + evening_litres.
+- For buyer creation, write directly to buyers with name, default_rate when known, active = 1, and optional location/contact/notes.
+- For calf creation, write to calves with name, source_type, status, and any known birth_date, expected_lactation_date, purchase_price, paid_amount, notes.
+- For calf expenses, write to calf_expenses with calf_id, expense_date, expense_type, category_id or food_item_id when known, quantity_kg, unit_rate, amount, payment_mode, and description.
+- For feed/food creation or price updates, write food_items for the current catalog values and food_price_history for the effective price snapshot.
+- For capital/assets, write investments with source_type, source_id when imported from cow/calf, title, investment_date, investment_amount, status, and notes.
 - Keep SQL concise and use SQLite date functions when helpful.
-- Never expose secrets, database paths, JWTs, or password hashes.
 - User-facing reply text must be plain text only: no markdown, no **bold**, no headings, no code fences.
 
 Return JSON with this exact shape:
@@ -781,10 +1009,22 @@ async function makeReplyFromResults(userMessage, plan, execution) {
   return extractJson(content).reply || plan.reply || 'Done.';
 }
 
-async function planForMessage(message) {
+function sanitizeChatHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .filter((item) => ['user', 'assistant'].includes(item?.role) && String(item?.content || '').trim())
+    .slice(-12)
+    .map((item) => ({
+      role: item.role,
+      content: String(item.content).slice(0, 2000)
+    }));
+}
+
+async function planForMessage(message, history = []) {
   const schemaContext = buildSchemaContext();
+  const cleanHistory = sanitizeChatHistory(history);
   const content = await callOllama([
     { role: 'system', content: buildSystemPrompt(schemaContext) },
+    ...cleanHistory,
     { role: 'user', content: message }
   ]);
   const plan = extractJson(content);
@@ -877,7 +1117,7 @@ function resolveMissingEntities(userMessage, plan) {
   return plan;
 }
 
-async function handleChat({ message, userId = 'default' }) {
+async function handleChat({ message, history = [], userId = 'default' }) {
   const trimmed = String(message || '').trim();
   if (!trimmed) return { success: true, reply: 'Please type a question or database request.', actions: [], data: {} };
 
@@ -891,7 +1131,7 @@ async function handleChat({ message, userId = 'default' }) {
       return { success: true, reply, actions: pending.plan.actions || [], data: { results: enrichedResults, uiHints: enrichedResults.map((r) => r.uiHint) } };
     }
 
-    let plan = buildDailyEntryPlanFromMessage(trimmed) || await planForMessage(trimmed);
+    let plan = buildDailyEntryPlanFromMessage(trimmed) || await planForMessage(trimmed, history);
     if (!plan.actions.length) {
       return { success: true, reply: plan.reply || 'I need a clearer database request.', actions: [], data: {} };
     }

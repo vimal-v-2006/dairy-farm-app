@@ -5,6 +5,7 @@ const BLOCKED_KEYWORDS = [
   'CREATE', 'REPLACE', 'GRANT', 'REVOKE', 'LOAD_EXTENSION', 'sqlite_master', 'sqlite_schema'
 ];
 
+const PROTECTED_AUTH_IDENTIFIERS = ['users', 'password_hash'];
 const WRITE_TABLES_THAT_AFFECT_DAILY_TOTALS = new Set(['cow_milk_entries', 'milk_sales', 'expenses']);
 
 function normalizeSql(sql) {
@@ -32,6 +33,15 @@ function assertNoBlockedKeywords(sql) {
   for (const keyword of BLOCKED_KEYWORDS) {
     if (new RegExp(`\\b${keyword}\\b`, 'i').test(upper)) {
       throw new Error(`Blocked dangerous SQL keyword: ${keyword}`);
+    }
+  }
+}
+
+function assertNoProtectedAuthAccess(sql) {
+  const upper = stripStrings(sql).toUpperCase();
+  for (const identifier of PROTECTED_AUTH_IDENTIFIERS) {
+    if (new RegExp(`\\b${identifier}\\b`, 'i').test(upper)) {
+      throw new Error(`Blocked protected authentication data: ${identifier}`);
     }
   }
 }
@@ -65,6 +75,7 @@ function validateSql(sql, options = {}) {
   if (!safeSql) throw new Error('SQL is empty.');
   assertSingleStatement(safeSql);
   assertNoBlockedKeywords(safeSql);
+  assertNoProtectedAuthAccess(safeSql);
 
   const type = getStatementType(safeSql);
   if (!type) throw new Error('Only SELECT, INSERT, UPDATE, and DELETE statements are allowed.');

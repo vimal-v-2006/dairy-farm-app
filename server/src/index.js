@@ -840,10 +840,17 @@ app.delete('/api/account', auth, (req, res) => {
 
 app.get('/api/meta', auth, (req, res) => ok(res, { now: new Date().toISOString() }));
 
-app.post('/api/ai/chat', auth, body('message').isString().isLength({ min: 1 }).withMessage('Message is required'), validate, async (req, res) => {
-  const result = await handleChat({ message: req.body.message, userId: req.user?.id || 'default' });
-  res.status(result.success ? 200 : 400).json(result);
-});
+app.post(
+  '/api/ai/chat',
+  auth,
+  body('message').isString().isLength({ min: 1 }).withMessage('Message is required'),
+  body('history').optional().isArray({ max: 20 }).withMessage('Chat history must be an array'),
+  validate,
+  async (req, res) => {
+    const result = await handleChat({ message: req.body.message, history: req.body.history || [], userId: req.user?.id || 'default' });
+    res.status(result.success ? 200 : 400).json(result);
+  }
+);
 
 
 

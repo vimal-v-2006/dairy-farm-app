@@ -1,9 +1,10 @@
 const { db } = require('../db');
 
 const INTERNAL_TABLE_PREFIXES = ['sqlite_'];
+const HIDDEN_TABLES = new Set(['users']);
 
 function isInternalTable(name) {
-  return INTERNAL_TABLE_PREFIXES.some((prefix) => name.startsWith(prefix));
+  return HIDDEN_TABLES.has(name) || INTERNAL_TABLE_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
 function getTables() {
@@ -70,7 +71,14 @@ function inspectSchema() {
     tables,
     relationshipHints: getRelationshipHints(),
     dateFormat: 'YYYY-MM-DD for business dates such as entry_date, expense_date, investment_date',
+    appDataTables: [
+      'cows', 'buyers', 'expense_categories', 'food_items', 'food_price_history',
+      'calves', 'calf_expenses', 'daily_entries', 'cow_milk_entries',
+      'milk_sales', 'expenses', 'investments', 'cow_update_history'
+    ],
     importantBehavior: [
+      'The AI assistant may read and write all dairy business data tables listed in APP DATA TABLES using SELECT, INSERT, UPDATE, and DELETE only.',
+      'The users table is authentication-only and intentionally hidden from the AI assistant. Never query or write login users, password hashes, JWTs, or secrets.',
       'daily_entries is the parent/day summary table. The UI opens one daily_entries row by entry_date and then displays child rows from cow_milk_entries, milk_sales, and expenses.',
       'Do not say cow-wise milk production was added by only inserting/updating daily_entries.total_milk_litres. Cow-wise production is visible only when cow_milk_entries rows exist for the daily_entry_id and cow_id.',
       'For cow-wise production, create/find the daily_entries parent first, then INSERT/UPDATE cow_milk_entries with daily_entry_id, cow_id, entry_shift, total_litres, and matching morning_litres/evening_litres. Morning shift stores morning_litres=total_litres and evening_litres=0. Evening shift stores evening_litres=total_litres and morning_litres=0.',
@@ -79,6 +87,10 @@ function inspectSchema() {
       'milk_sales.income must equal litres * rate_per_litre. payment_status should normally be Paid and entry_shift should default to Morning if unknown.',
       'After cow_milk_entries, milk_sales, or expenses writes, daily_entries totals should be recalculated from child rows: milk from cow_milk_entries, income from milk_sales, expenses from expenses, remaining = milk - sold.',
       'expenses usually connect to daily_entries through daily_entry_id',
+      'Calf expenses are visible from the calf section only when calf_expenses rows exist for the calf_id.',
+      'Feed item purchase/rate changes should keep food_items current values in sync and add a food_price_history row with effective_from when a new price starts.',
+      'Investments are independent capital/assets records. Use source_type/source_id for imported cows or calves; use source_type manual for direct capital entries.',
+      'cow_update_history is an audit table. Prefer reading it for history; do not write it unless recording a clear cow profile change snapshot.',
       'expense categories already include Medical expense, Feed 1-4, Labour, Transport, Electricity, Maintenance, Cow purchase, Other expense',
       'Use SELECT first when updating/deleting ambiguous records so the user can confirm exact rows'
     ]
@@ -96,6 +108,8 @@ function buildSchemaContext() {
       lines.push(`  foreign keys: ${table.foreignKeys.map((fk) => `${fk.from} -> ${fk.table}.${fk.to} ON DELETE ${fk.onDelete}`).join('; ')}`);
     }
   });
+  lines.push('APP DATA TABLES:');
+  schema.appDataTables.forEach((tableName) => lines.push(`- ${tableName}`));
   lines.push('RELATIONSHIPS:');
   schema.relationshipHints.forEach((hint) => lines.push(`- ${hint}`));
   lines.push('BUSINESS BEHAVIOR:');
