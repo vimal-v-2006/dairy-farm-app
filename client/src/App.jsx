@@ -1229,9 +1229,7 @@ function App() {
   return (
     <div className="min-h-screen overflow-x-hidden p-4 md:p-6">
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="floating-orb left-[6%] top-16 h-36 w-36 bg-emerald-400/20" />
-        <div className="floating-orb right-[8%] top-32 h-48 w-48 bg-sky-400/20" style={{ animationDelay: '1.2s' }} />
-        <div className="floating-orb bottom-16 left-1/3 h-44 w-44 bg-violet-400/12" style={{ animationDelay: '2.1s' }} />
+        <div className="ambient-surface" />
       </div>
 
       <AnimatePresence>
@@ -1267,7 +1265,7 @@ function App() {
       </AnimatePresence>
 
       <div className="mx-auto flex max-w-7xl gap-4 lg:gap-6">
-        <aside className="glass hidden w-72 shrink-0 rounded-[2rem] p-5 lg:block">
+        <aside className="glass sticky top-6 hidden max-h-[calc(100vh-3rem)] w-72 shrink-0 overflow-y-auto rounded-[2rem] p-5 lg:block">
           <div className="mb-8 flex items-center gap-3">
             <div className="rounded-3xl bg-gradient-to-br from-emerald-400/25 to-sky-400/25 p-4 text-emerald-500 shadow-[0_18px_40px_rgba(16,185,129,0.18)]"><Milk size={26} /></div>
             <div>
@@ -1282,7 +1280,7 @@ function App() {
         </aside>
 
         <main className="min-w-0 flex-1 space-y-4">
-          <header className="glass relative overflow-hidden rounded-[2rem] p-5">
+          <motion.header initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass relative overflow-hidden rounded-[2rem] p-5">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.18),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.16),transparent_30%)]" />
             <div className="relative flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -1296,12 +1294,12 @@ function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setDark((v) => !v)} className="rounded-2xl border border-white/20 px-4 py-2.5"><SunMoon size={18} /></button>
-                <button onClick={deleteAccount} className="rounded-2xl border border-red-300 bg-red-50 px-4 py-2.5 text-red-600 dark:bg-red-500/10"><Trash2 size={18} /></button>
-                <button onClick={logout} className="rounded-2xl bg-red-500 px-4 py-2.5 text-white"><LogOut size={18} /></button>
+                <motion.button whileTap={{ scale: 0.96 }} onClick={() => setDark((v) => !v)} className="rounded-2xl border border-white/20 bg-white/45 px-4 py-2.5 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/70 dark:bg-slate-900/40 dark:hover:bg-slate-800"><SunMoon size={18} /></motion.button>
+                <motion.button whileTap={{ scale: 0.96 }} onClick={deleteAccount} className="rounded-2xl border border-red-300 bg-red-50 px-4 py-2.5 text-red-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/15"><Trash2 size={18} /></motion.button>
+                <motion.button whileTap={{ scale: 0.96 }} onClick={logout} className="rounded-2xl bg-red-500 px-4 py-2.5 text-white shadow-lg shadow-red-500/20 transition hover:-translate-y-0.5 hover:bg-red-600"><LogOut size={18} /></motion.button>
               </div>
             </div>
-          </header>
+          </motion.header>
 
           {tab === 'dashboard' && dashboard && (
             <section className="space-y-4">
@@ -2652,7 +2650,7 @@ function CowMascot() {
   );
 }
 
-const Card = ({ children, className = '', cardRef = null, ...props }) => <motion.div ref={cardRef} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3 }} transition={{ duration: 0.22 }} className={`glass premium-card rounded-[2rem] p-5 ${className}`} {...props}>{children}</motion.div>;
+const Card = ({ children, className = '', cardRef = null, ...props }) => <motion.div ref={cardRef} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3, scale: 1.004 }} transition={{ duration: 0.2, ease: 'easeOut' }} className={`glass premium-card rounded-[2rem] p-5 ${className}`} {...props}>{children}</motion.div>;
 const StatCard = ({ icon: Icon, label, value, tone = 'blue', sub }) => (
   <Card>
     <div className="flex items-start justify-between gap-3">
@@ -2695,7 +2693,7 @@ function ActionCard({ icon: Icon, title, value, hint, tone = 'sky', valueClassNa
   const palette = toneMap[tone] || toneMap.sky;
 
   return (
-    <motion.div whileHover={{ y: -3 }} className={`relative min-h-[162px] overflow-hidden rounded-[1.75rem] border ${palette.ring} bg-white/80 p-4 shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:bg-slate-900/75`}>
+    <motion.div whileHover={{ y: -3, scale: 1.006 }} transition={{ duration: 0.18 }} className={`relative min-h-[162px] overflow-hidden rounded-[1.75rem] border ${palette.ring} bg-white/80 p-4 shadow-[0_18px_45px_rgba(15,23,42,0.08)] transition-shadow hover:shadow-[0_22px_60px_rgba(15,23,42,0.13)] dark:bg-slate-900/75`}>
       <div className={`pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl ${palette.glow}`} />
       <div className="relative flex items-start justify-between gap-3">
         <div>
@@ -2747,16 +2745,16 @@ function ChartWrap({ children }) { return <div className="h-72 w-full"><Responsi
 function PanelChart({ title, data, type, dataKey = 'value', color = '#3b82f6', xKey = 'name' }) {
   return <Card><h4 className="display-font mb-4 text-lg font-black tracking-tight">{title}</h4><div className="h-64">{type === 'pie' ? <ResponsiveContainer><PieChart><Pie data={data} dataKey={dataKey} nameKey="name" innerRadius={55} outerRadius={90}>{data.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}</Pie><Tooltip contentStyle={{ borderRadius: 16, border: '1px solid rgba(148,163,184,0.25)', background: 'rgba(255,255,255,0.96)', color: '#0f172a' }} /></PieChart></ResponsiveContainer> : type === 'line' ? <ResponsiveContainer><LineChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="4 4" stroke="#94a3b8" opacity={0.28} /><XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} /><YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} width={42} /><Tooltip contentStyle={{ borderRadius: 16, border: '1px solid rgba(148,163,184,0.25)', background: 'rgba(255,255,255,0.96)', color: '#0f172a' }} /><Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={3} dot={{ r: 2, fill: color }} activeDot={{ r: 4 }} /></LineChart></ResponsiveContainer> : <ResponsiveContainer><BarChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="4 4" stroke="#94a3b8" opacity={0.28} /><XAxis dataKey={xKey} tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} /><YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} width={42} /><Tooltip contentStyle={{ borderRadius: 16, border: '1px solid rgba(148,163,184,0.25)', background: 'rgba(255,255,255,0.96)', color: '#0f172a' }} /><Bar dataKey={dataKey} fill={color} radius={[10, 10, 0, 0]} /></BarChart></ResponsiveContainer>}</div></Card>;
 }
-function FieldInput({ value, onChange = () => {}, placeholder = '', type = 'text', disabled = false }) { return <input type={type} disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={`w-full rounded-2xl border px-4 py-3 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 dark:bg-slate-900/50 ${disabled ? 'border-slate-300 bg-slate-100 text-slate-700 opacity-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100' : 'border-white/20 bg-white/50'}`} />; }
+function FieldInput({ value, onChange = () => {}, placeholder = '', type = 'text', disabled = false }) { return <input type={type} disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={`w-full rounded-2xl border px-4 py-3 outline-none transition-all duration-200 placeholder:text-slate-400 focus:-translate-y-0.5 focus:border-emerald-400 focus:bg-white/80 focus:shadow-[0_12px_28px_rgba(16,185,129,0.10)] focus:ring-4 focus:ring-emerald-500/10 dark:bg-slate-900/50 dark:focus:bg-slate-900/80 ${disabled ? 'border-slate-300 bg-slate-100 text-slate-700 opacity-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100' : 'border-white/20 bg-white/50 hover:border-emerald-300/45'}`} />; }
 function Input({ label, value, onChange = () => {}, disabled = false, type = 'text', placeholder = '' }) { return <label className="block"><span className="mb-2 block text-sm font-semibold opacity-70">{label}</span><FieldInput type={type} disabled={disabled} value={value} onChange={onChange} placeholder={placeholder} /></label>; }
-function SelectInput({ label, value, onChange = () => {}, options = [] }) { return <label className="block"><span className="mb-2 block text-sm font-semibold opacity-70">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-2xl border border-white/20 bg-white/50 px-4 py-3 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 dark:bg-slate-900/50">{options.map((option) => typeof option === 'string' ? <option key={option} value={option}>{option}</option> : <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
-function TextArea({ label, value, onChange = () => {}, placeholder = '', compact = false }) { return <label className="mt-4 block"><span className="mb-2 block text-sm font-semibold opacity-70">{label}</span><textarea rows={compact ? 2 : 3} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded-2xl border border-white/20 bg-white/50 p-3 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 dark:bg-slate-900/50" /></label>; }
+function SelectInput({ label, value, onChange = () => {}, options = [] }) { return <label className="block"><span className="mb-2 block text-sm font-semibold opacity-70">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-2xl border border-white/20 bg-white/50 px-4 py-3 outline-none transition-all duration-200 hover:border-emerald-300/45 focus:-translate-y-0.5 focus:border-emerald-400 focus:bg-white/80 focus:shadow-[0_12px_28px_rgba(16,185,129,0.10)] focus:ring-4 focus:ring-emerald-500/10 dark:bg-slate-900/50 dark:focus:bg-slate-900/80">{options.map((option) => typeof option === 'string' ? <option key={option} value={option}>{option}</option> : <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
+function TextArea({ label, value, onChange = () => {}, placeholder = '', compact = false }) { return <label className="mt-4 block"><span className="mb-2 block text-sm font-semibold opacity-70">{label}</span><textarea rows={compact ? 2 : 3} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded-2xl border border-white/20 bg-white/50 p-3 outline-none transition-all duration-200 placeholder:text-slate-400 hover:border-emerald-300/45 focus:-translate-y-0.5 focus:border-emerald-400 focus:bg-white/80 focus:shadow-[0_12px_28px_rgba(16,185,129,0.10)] focus:ring-4 focus:ring-emerald-500/10 dark:bg-slate-900/50 dark:focus:bg-slate-900/80" /></label>; }
 function InfoBox({ title, lines }) { return <Card><h4 className="display-font text-lg font-black tracking-tight">{title}</h4><div className="mt-4 space-y-2 text-sm opacity-80">{lines.map((line, index) => <div key={index}>{line}</div>)}</div></Card>; }
 function MiniStat({ label, value }) { return <div className="rounded-2xl border border-white/10 bg-white/12 p-4 shadow-inner shadow-black/10"><div className="text-sm font-medium text-slate-300">{label}</div><div className="mt-1 text-2xl font-black text-white">{value}</div></div>; }
 function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
   const remainingInfo = parseStoredNotes(item.entry.notes);
   return (
-    <div className="rounded-[1.75rem] border border-white/50 bg-white/70 p-4 shadow-xl backdrop-blur-xl dark:border-slate-700/50 dark:bg-slate-800/60">
+    <motion.div layout whileHover={{ y: -2 }} transition={{ duration: 0.18 }} className="rounded-[1.75rem] border border-white/50 bg-white/70 p-4 shadow-xl backdrop-blur-xl transition-shadow hover:shadow-[0_22px_54px_rgba(15,23,42,0.14)] dark:border-slate-700/50 dark:bg-slate-800/60">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xl font-black text-slate-900 dark:text-white">{item.entry.entry_date}</div>
@@ -2947,7 +2945,7 @@ function SavedEntryCard({ item, onEdit, onDelete, compact = false }) {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -3520,10 +3518,11 @@ function NavigationLinks({ tab, onSelect }) {
   return (
     <nav className="space-y-2">
       {nav.map(([key, label, Icon]) => (
-        <button key={key} onClick={() => onSelect(key)} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-medium transition ${tab === key ? 'bg-slate-950 text-white shadow-lg dark:bg-white dark:text-slate-950' : 'hover:bg-white/50 dark:hover:bg-slate-800/60'}`}>
+        <motion.button key={key} whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }} onClick={() => onSelect(key)} className={`relative flex w-full items-center gap-3 overflow-hidden rounded-2xl px-4 py-3.5 text-left font-medium transition ${tab === key ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/14 dark:bg-white dark:text-slate-950' : 'hover:bg-white/58 hover:shadow-sm dark:hover:bg-slate-800/60'}`}>
+          {tab === key && <motion.span layoutId="active-nav-pill" className="absolute inset-y-2 left-2 w-1 rounded-full bg-emerald-400" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
           <Icon size={18} />
-          {label}
-        </button>
+          <span className="relative">{label}</span>
+        </motion.button>
       ))}
     </nav>
   );
