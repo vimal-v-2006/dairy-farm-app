@@ -21,6 +21,11 @@ const nav = [
 ];
 
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
+const roundNumber = (value, decimals = 2, epsilon = 0.001) => {
+  const n = Number(value) || 0;
+  if (Math.abs(n) < epsilon) return 0;
+  return Number(n.toFixed(decimals));
+};
 
 // ── Gen UI Message — renders AI reply + rich data widgets ─────────────────────
 function AiMessageContent({ text }) {
@@ -246,7 +251,7 @@ function compactAiHistory(messages) {
 function App() {
   const { user, loading, logout } = useAuth();
   const [tab, setTab] = useState('dashboard');
-  const [marginScope, setMarginScope] = useState('monthly');
+  const [marginScope, setMarginScope] = useState('overall');
   const [dark, setDark] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [state, setState] = useState({ dashboard: null, cows: [], calves: [], investments: [], buyers: [], categories: [], foods: [], dailyEntries: [], dailyData: [] });
@@ -503,17 +508,17 @@ function App() {
   }, [topBuyer, trend]);
 
   const dailyMetrics = useMemo(() => {
-    const produced = dailyForm.entry_mode === 'cows' ? dailyCowTotal : Number(dailyForm.total_milk_litres || 0);
-    const sold = dailyForm.milkSales.reduce((sum, item) => sum + Number(item.litres || 0), 0);
-    const income = dailyForm.milkSales.reduce((sum, item) => sum + Number(item.litres || 0) * Number(item.rate_per_litre || 0), 0);
-    const expenses = dailyForm.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const produced = roundNumber(dailyForm.entry_mode === 'cows' ? dailyCowTotal : Number(dailyForm.total_milk_litres || 0), 2);
+    const sold = roundNumber(dailyForm.milkSales.reduce((sum, item) => sum + Number(item.litres || 0), 0), 2);
+    const income = roundNumber(dailyForm.milkSales.reduce((sum, item) => sum + Number(item.litres || 0) * Number(item.rate_per_litre || 0), 0), 2);
+    const expenses = roundNumber(dailyForm.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0), 2);
     return {
       produced,
       sold,
-      remaining: produced - sold,
+      remaining: roundNumber(produced - sold, 2),
       income,
       expenses,
-      profit: income - expenses
+      profit: roundNumber(income - expenses, 2)
     };
   }, [dailyForm, dailyCowTotal]);
 
@@ -596,21 +601,21 @@ function App() {
       setDailyForm(hydrateDailyForm({
         entry_date: data.entry.entry_date,
         entry_mode: data.cowEntries?.length ? 'cows' : 'direct',
-        total_milk_litres: data.entry.total_milk_litres || '',
+        total_milk_litres: data.entry.total_milk_litres !== null && data.entry.total_milk_litres !== undefined ? roundNumber(data.entry.total_milk_litres, 2) : '',
         notes: parsedNotes.generalNotes,
         remaining_milk_usage: parsedNotes.remainingUsage || 'Home Use',
         remaining_milk_notes: parsedNotes.remainingNotes,
         cowEntries: (data.cowEntries || []).map((entry) => ({
           cow_id: entry.cow_id || '',
-          total_litres: entry.total_litres || '',
+          total_litres: entry.total_litres !== null && entry.total_litres !== undefined ? roundNumber(entry.total_litres, 2) : '',
           entry_shift: entry.entry_shift || (Number(entry.evening_litres || 0) > 0 ? 'Evening' : 'Morning'),
           status: entry.status || 'Recorded',
           notes: entry.notes || ''
         })),
         milkSales: data.milkSales.map((sale) => ({
           buyer_id: sale.buyer_id || '',
-          litres: sale.litres || '',
-          rate_per_litre: sale.rate_per_litre || '',
+          litres: sale.litres !== null && sale.litres !== undefined ? roundNumber(sale.litres, 2) : '',
+          rate_per_litre: sale.rate_per_litre !== null && sale.rate_per_litre !== undefined ? roundNumber(sale.rate_per_litre, 2) : '',
           entry_shift: sale.entry_shift || 'Morning',
           notes: sale.notes || ''
         })),
@@ -623,9 +628,9 @@ function App() {
           food_name_snapshot: expense.food_name || '',
           unit_type_snapshot: expense.unit_type || '',
           rate_effective_from: expense.rate_effective_from || null,
-          quantity_kg: expense.quantity_kg ?? '',
-          unit_rate: expense.unit_rate ?? '',
-          amount: expense.amount ?? '',
+          quantity_kg: expense.quantity_kg !== null && expense.quantity_kg !== undefined ? roundNumber(expense.quantity_kg, 3) : '',
+          unit_rate: expense.unit_rate !== null && expense.unit_rate !== undefined ? roundNumber(expense.unit_rate, 2) : '',
+          amount: expense.amount !== null && expense.amount !== undefined ? roundNumber(expense.amount, 2) : '',
           entry_shift: expense.entry_shift || 'Morning',
           description: expense.description || '',
           payment_mode: expense.payment_mode || 'Cash'
