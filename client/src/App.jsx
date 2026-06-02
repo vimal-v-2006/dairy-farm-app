@@ -2789,7 +2789,7 @@ function AutoFitMetricLine({ items = [] }) {
   return (
     <div
       ref={lineRef}
-      className="mt-2 overflow-hidden whitespace-nowrap rounded-2xl border border-slate-200/70 bg-white/62 px-3 py-2 font-bold leading-relaxed text-slate-500 shadow-inner dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-400"
+      className="mt-2 overflow-hidden whitespace-nowrap rounded-2xl border border-slate-200/70 bg-white/62 px-3 py-2 text-center font-bold leading-relaxed text-slate-500 shadow-inner dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-400"
       style={{ fontSize }}
     >
       {items.map(([label, value, tone], index) => (
