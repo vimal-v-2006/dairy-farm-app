@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, AlertCircle, Baby, Bot, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, Loader2, LogOut, Menu, Milk, NotebookPen, Pencil, Plus, Printer, Send, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, Users, Wallet, X } from 'lucide-react';
+import { Activity, AlertCircle, Baby, Bot, CalendarDays, CheckCircle2, CircleDollarSign, Droplets, LayoutDashboard, Loader2, LogOut, Menu, Milk, NotebookPen, Pencil, Plus, Printer, Send, Settings2, Sparkles, SunMoon, Trash2, TrendingUp, UserRound, Users, Wallet, X } from 'lucide-react';
 import { api, storage } from './api/client';
 import { useAuth } from './context/AuthContext';
 import { currency, exportBusinessRegisterExcel, exportDetailedDailyPdf, litres, today, exportSingleCowPdf, exportAllCowsPdf, exportSingleCalfPdf, exportAllCalvesPdf } from './lib/utils';
@@ -16,7 +16,8 @@ const nav = [
   ['settings', 'Expense categories', Settings2],
   ['reports', 'Reports', TrendingUp],
   ['investments', 'Capital / Assets', Wallet],
-  ['ai', 'AI Assistant', Bot]
+  ['ai', 'AI Assistant', Bot],
+  ['account', 'Account', UserRound]
 ];
 
 const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#ec4899'];
@@ -1348,7 +1349,6 @@ function App() {
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setDark((v) => !v)} className="rounded-2xl border border-white/20 px-4 py-2.5"><SunMoon size={18} /></button>
-                <button onClick={deleteAccount} className="rounded-2xl border border-red-300 bg-red-50 px-4 py-2.5 text-red-600 dark:bg-red-500/10"><Trash2 size={18} /></button>
                 <button onClick={logout} className="rounded-2xl bg-red-500 px-4 py-2.5 text-white"><LogOut size={18} /></button>
               </div>
             </div>
@@ -1533,6 +1533,55 @@ function App() {
                   </div>
                 </div>
               </Card>
+            </section>
+          )}
+
+          {tab === 'account' && (
+            <section className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-[1fr_.85fr]">
+                <Card>
+                  <SectionTitle title="Account" icon={UserRound} />
+                  <div className="mt-4 rounded-3xl border border-white/20 bg-white/55 p-5 dark:bg-slate-900/40">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Signed in as</p>
+                        <h3 className="display-font mt-2 truncate text-3xl font-black tracking-tight">{user.username}</h3>
+                        <p className="mt-2 text-sm opacity-65">Single-user dairy business workspace</p>
+                      </div>
+                      <div className="rounded-3xl bg-emerald-500/12 p-5 text-emerald-600 dark:text-emerald-300">
+                        <UserRound size={34} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <button onClick={() => setDark((v) => !v)} className="flex items-center justify-between rounded-3xl border border-slate-200/70 bg-white/70 px-5 py-4 text-left font-bold shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-slate-900/55 dark:hover:bg-slate-800">
+                      <span>
+                        <span className="block text-sm">Appearance</span>
+                        <span className="mt-1 block text-xs font-medium opacity-60">{dark ? 'Dark mode is on' : 'Light mode is on'}</span>
+                      </span>
+                      <SunMoon size={20} />
+                    </button>
+                    <button onClick={logout} className="flex items-center justify-between rounded-3xl border border-slate-200/70 bg-white/70 px-5 py-4 text-left font-bold shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-slate-900/55 dark:hover:bg-slate-800">
+                      <span>
+                        <span className="block text-sm">Sign out</span>
+                        <span className="mt-1 block text-xs font-medium opacity-60">End this browser session</span>
+                      </span>
+                      <LogOut size={20} />
+                    </button>
+                  </div>
+                </Card>
+
+                <Card className="border-red-200/60 dark:border-red-400/20">
+                  <SectionTitle title="Danger zone" icon={Trash2} />
+                  <div className="mt-4 rounded-3xl border border-red-200 bg-red-50/80 p-5 text-red-900 dark:border-red-400/25 dark:bg-red-500/10 dark:text-red-100">
+                    <h3 className="display-font text-xl font-black tracking-tight">Delete account</h3>
+                    <p className="mt-2 text-sm leading-relaxed opacity-75">This permanently removes the user account and all saved farm records from this app.</p>
+                    <button onClick={deleteAccount} className="mt-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700">
+                      <Trash2 size={16} /> Delete account
+                    </button>
+                  </div>
+                </Card>
+              </div>
             </section>
           )}
 
