@@ -1457,22 +1457,16 @@ function App() {
                       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{marginSummary.label} margin</p>
                     </div>
                   </div>
-                  <div className="mt-2 rounded-2xl border border-slate-200/70 bg-white/62 px-3 py-2 text-[11px] font-bold leading-relaxed text-slate-500 shadow-inner dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-400">
-                    {[
+                  <AutoFitMetricLine
+                    items={[
                       ['Income', currency(marginSummary.selected.income), 'text-emerald-600 dark:text-emerald-300'],
                       ['Exp', currency(marginSummary.selected.expenses), 'text-rose-600 dark:text-rose-300'],
                       ['Net', currency(marginSummary.selected.profit), marginSummary.selected.profit >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'],
                       ['Exp ratio', `${marginSummary.selected.expenseRatio}%`, marginSummary.selected.expenseRatio <= 70 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'],
                       ['Milk', litres(marginSummary.selected.milk), 'text-sky-600 dark:text-sky-300'],
                       ['Days', marginSummary.selected.days || '—', 'text-slate-700 dark:text-slate-200']
-                    ].map(([label, value, tone], index) => (
-                      <span key={label} className="whitespace-nowrap">
-                        {index > 0 && <span className="mx-1.5 text-slate-300 dark:text-slate-600">|</span>}
-                        <span className="uppercase tracking-[0.12em]">{label}</span>{' '}
-                        <span className={`font-black ${tone}`}>{value}</span>
-                      </span>
-                    ))}
-                  </div>
+                    ]}
+                  />
                 </Card>
               </div>
 
@@ -2764,6 +2758,50 @@ function CowMascot() {
 }
 
 const Card = ({ children, className = '', cardRef = null, ...props }) => <motion.div ref={cardRef} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3 }} transition={{ duration: 0.22 }} className={`glass premium-card rounded-[2rem] p-5 ${className}`} {...props}>{children}</motion.div>;
+function AutoFitMetricLine({ items = [] }) {
+  const lineRef = useRef(null);
+  const [fontSize, setFontSize] = useState(11);
+
+  useEffect(() => {
+    const fitLine = () => {
+      const line = lineRef.current;
+      if (!line) return;
+
+      line.style.fontSize = '11px';
+      const availableWidth = line.clientWidth;
+      const requiredWidth = line.scrollWidth;
+      const nextSize = availableWidth && requiredWidth > availableWidth
+        ? Math.max(6.8, Math.min(11, (11 * availableWidth) / requiredWidth - 0.2))
+        : 11;
+      setFontSize(Number(nextSize.toFixed(2)));
+    };
+
+    fitLine();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fitLine) : null;
+    if (lineRef.current && resizeObserver) resizeObserver.observe(lineRef.current);
+    window.addEventListener('resize', fitLine);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', fitLine);
+    };
+  }, [items]);
+
+  return (
+    <div
+      ref={lineRef}
+      className="mt-2 overflow-hidden whitespace-nowrap rounded-2xl border border-slate-200/70 bg-white/62 px-3 py-2 font-bold leading-relaxed text-slate-500 shadow-inner dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-400"
+      style={{ fontSize }}
+    >
+      {items.map(([label, value, tone], index) => (
+        <span key={label} className="whitespace-nowrap">
+          {index > 0 && <span className="mx-1.5 text-slate-300 dark:text-slate-600">|</span>}
+          <span className="uppercase tracking-[0.12em]">{label}</span>{' '}
+          <span className={`font-black ${tone}`}>{value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 const StatCard = ({ icon: Icon, label, value, tone = 'blue', sub }) => (
   <Card>
     <div className="flex items-start justify-between gap-3">
