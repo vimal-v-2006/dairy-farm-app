@@ -245,6 +245,7 @@ function compactAiHistory(messages) {
 function App() {
   const { user, loading, logout } = useAuth();
   const [tab, setTab] = useState('dashboard');
+  const [marginScope, setMarginScope] = useState('monthly');
   const [dark, setDark] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [state, setState] = useState({ dashboard: null, cows: [], calves: [], investments: [], buyers: [], categories: [], foods: [], dailyEntries: [], dailyData: [] });
@@ -438,6 +439,56 @@ function App() {
   const reportRegisterRows = useMemo(() => buildRegisterRows(filteredDailyData), [filteredDailyData]);
   const reportRegisterTable = useMemo(() => buildPlainRegisterTable(filteredDailyData), [filteredDailyData]);
   const reportInsights = useMemo(() => buildReportInsights(reports), [reports]);
+  const marginSummary = useMemo(() => {
+    const currentMonthKey = today().slice(0, 7);
+    const monthlyRows = state.dailyData.filter((item) => String(item?.entry?.entry_date || '').startsWith(currentMonthKey));
+    const overallRows = state.dailyData;
+    const summarize = (rows, fallback = {}) => {
+      const totals = rows.reduce((sum, item) => {
+        const entry = item?.entry || {};
+        return {
+          income: sum.income + Number(entry.total_income || 0),
+          expenses: sum.expenses + Number(entry.total_expenses || 0),
+          profit: sum.profit + Number(entry.profit || 0),
+          milk: sum.milk + Number(entry.total_milk_litres || 0),
+          remaining: sum.remaining + Number(entry.remaining_milk_litres || 0)
+        };
+      }, { income: 0, expenses: 0, profit: 0, milk: 0, remaining: 0 });
+
+      const income = rows.length ? totals.income : Number(fallback.income || 0);
+      const expenses = rows.length ? totals.expenses : Number(fallback.expenses || 0);
+      const profit = rows.length ? totals.profit : Number(fallback.profit || 0);
+      const milk = rows.length ? totals.milk : Number(fallback.milk || 0);
+      const remaining = rows.length ? totals.remaining : Number(fallback.remaining || 0);
+      return {
+        income,
+        expenses,
+        profit,
+        milk,
+        remaining,
+        days: rows.length,
+        profitMargin: income ? Number(((profit / income) * 100).toFixed(2)) : 0,
+        expenseRatio: income ? Number(((expenses / income) * 100).toFixed(2)) : 0
+      };
+    };
+
+    const monthly = summarize(monthlyRows, {
+      income: dashboard?.monthly?.income,
+      expenses: dashboard?.monthly?.expenses,
+      profit: dashboard?.monthly?.profit,
+      milk: dashboard?.monthly?.milk,
+      remaining: dashboard?.today?.remainingMilkLitres
+    });
+    const overall = summarize(overallRows);
+    const selected = marginScope === 'overall' ? overall : monthly;
+
+    return {
+      selected,
+      label: marginScope === 'overall' ? 'Overall' : 'Monthly',
+      monthly,
+      overall
+    };
+  }, [dashboard, marginScope, state.dailyData]);
 
   const smartInsights = useMemo(() => {
     const bestDay = trend.reduce((best, day) => (!best || Number(day.profit || 0) > Number(best.profit || 0) ? day : best), null);
@@ -1362,7 +1413,67 @@ function App() {
 
               <div className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
                 <Card><SectionTitle title="Income vs expense trend" icon={CalendarDays} /><ChartWrap><AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}><defs><linearGradient id="income" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#16a34a" stopOpacity="0.9" /><stop offset="100%" stopColor="#16a34a" stopOpacity="0.12" /></linearGradient><linearGradient id="expense" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#d97706" stopOpacity="0.85" /><stop offset="100%" stopColor="#d97706" stopOpacity="0.12" /></linearGradient></defs><CartesianGrid strokeDasharray="4 4" stroke="#94a3b8" opacity={0.28} /><XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} /><YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} width={42} /><Tooltip contentStyle={{ borderRadius: 16, border: '1px solid rgba(148,163,184,0.25)', background: 'rgba(255,255,255,0.96)', color: '#0f172a' }} /><Area type="monotone" dataKey="income" stroke="#16a34a" strokeWidth={3} fill="url(#income)" /><Area type="monotone" dataKey="expenses" stroke="#d97706" strokeWidth={3} fill="url(#expense)" /></AreaChart></ChartWrap></Card>
-                <Card><SectionTitle title="Monthly margin" icon={TrendingUp} /><div className="relative mx-auto flex h-72 max-w-[280px] items-center justify-center"><div className="absolute h-32 w-32 rounded-full bg-emerald-400/10 blur-2xl" /><div className="absolute inset-0"><ResponsiveContainer><RadialBarChart innerRadius="72%" outerRadius="96%" barSize={16} data={[{ value: Math.min(Math.abs(dashboard.monthly.profitMargin), 100), fill: dashboard.monthly.profit >= 0 ? '#22c55e' : '#ef4444' }]} startAngle={90} endAngle={-270}><PolarAngleAxis type="number" domain={[0, 100]} tick={false} /><RadialBar cornerRadius={24} background={{ fill: 'rgba(148,163,184,0.14)' }} dataKey="value" /></RadialBarChart></ResponsiveContainer></div><div className="relative z-10 rounded-[2rem] border border-slate-200/80 bg-white/88 px-5 py-4 text-center shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur-md dark:border-white/10 dark:bg-slate-900/82"><div className="display-font text-[2.45rem] font-black leading-none tracking-tight text-slate-900 dark:text-white">{dashboard.monthly.profitMargin}%</div><p className="mt-2 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Profit margin</p></div></div></Card>
+                <Card>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-2xl bg-sky-500/15 p-2 text-sky-500"><TrendingUp size={18} /></div>
+                      <h3 className="display-font text-xl font-black tracking-tight">Margin</h3>
+                    </div>
+                    <div className="grid grid-cols-2 rounded-2xl border border-slate-200/80 bg-white/70 p-1 text-xs font-black shadow-inner dark:border-white/10 dark:bg-slate-900/60">
+                      {[
+                        ['monthly', 'Monthly'],
+                        ['overall', 'Overall']
+                      ].map(([scope, label]) => (
+                        <button
+                          key={scope}
+                          type="button"
+                          onClick={() => setMarginScope(scope)}
+                          className={`rounded-xl px-3 py-2 transition ${marginScope === scope ? 'bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="relative mx-auto flex h-72 max-w-[280px] items-center justify-center">
+                    <div className={`absolute h-32 w-32 rounded-full blur-2xl ${marginSummary.selected.profit >= 0 ? 'bg-emerald-400/10' : 'bg-rose-400/10'}`} />
+                    <div className="absolute inset-0">
+                      <ResponsiveContainer>
+                        <RadialBarChart
+                          innerRadius="72%"
+                          outerRadius="96%"
+                          barSize={16}
+                          data={[{ value: Math.min(Math.abs(marginSummary.selected.profitMargin), 100), fill: marginSummary.selected.profit >= 0 ? '#22c55e' : '#ef4444' }]}
+                          startAngle={90}
+                          endAngle={-270}
+                        >
+                          <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                          <RadialBar cornerRadius={24} background={{ fill: 'rgba(148,163,184,0.14)' }} dataKey="value" />
+                        </RadialBarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="relative z-10 rounded-[2rem] border border-slate-200/80 bg-white/88 px-5 py-4 text-center shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur-md dark:border-white/10 dark:bg-slate-900/82">
+                      <div className={`display-font text-[2.35rem] font-black leading-none tracking-tight ${marginSummary.selected.profit >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>{marginSummary.selected.profitMargin}%</div>
+                      <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">{marginSummary.label} margin</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded-2xl border border-slate-200/70 bg-white/62 px-3 py-2 text-[11px] font-bold leading-relaxed text-slate-500 shadow-inner dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-400">
+                    {[
+                      ['Income', currency(marginSummary.selected.income), 'text-emerald-600 dark:text-emerald-300'],
+                      ['Exp', currency(marginSummary.selected.expenses), 'text-rose-600 dark:text-rose-300'],
+                      ['Net', currency(marginSummary.selected.profit), marginSummary.selected.profit >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'],
+                      ['Exp ratio', `${marginSummary.selected.expenseRatio}%`, marginSummary.selected.expenseRatio <= 70 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'],
+                      ['Milk', litres(marginSummary.selected.milk), 'text-sky-600 dark:text-sky-300'],
+                      ['Days', marginSummary.selected.days || '—', 'text-slate-700 dark:text-slate-200']
+                    ].map(([label, value, tone], index) => (
+                      <span key={label} className="whitespace-nowrap">
+                        {index > 0 && <span className="mx-1.5 text-slate-300 dark:text-slate-600">|</span>}
+                        <span className="uppercase tracking-[0.12em]">{label}</span>{' '}
+                        <span className={`font-black ${tone}`}>{value}</span>
+                      </span>
+                    ))}
+                  </div>
+                </Card>
               </div>
 
               <div className="grid gap-4 xl:grid-cols-3">
